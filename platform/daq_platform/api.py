@@ -18,6 +18,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from .catalog import catalog as build_catalog
 from .services import ApiError, Platform
 from .store import iso_to_ms, now_ms
 
@@ -26,8 +27,12 @@ WEB_DIR = pathlib.Path(__file__).resolve().parent.parent / "web"
 SSE_KEEPALIVE_S = 15
 
 
-def create_app(platform: Platform, tokens: dict[str, dict]) -> Starlette:
+def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | None = None,
+               schema_types: set[str] | None = None) -> Starlette:
+    """demo_info: shown on the configuration screen when running the demo (simulated devices to try).
+    schema_types: connector types that have a configuration schema (spec), for the catalog status."""
     store = platform.store
+    specified = schema_types or {"modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera"}
 
     def auth(request: Request, need: str) -> dict:
         header = request.headers.get("authorization", "")
@@ -88,6 +93,26 @@ def create_app(platform: Platform, tokens: dict[str, dict]) -> Starlette:
         args = await body(request) if (await request.body()) else {}
         res = await platform.admin(request.path_params["sid"], op, args, who["user"],
                                    int(request.query_params.get("timeout_ms", 10000)))
+        return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+
+    async def get_catalog(request):
+        auth(request, "viewer")
+        available = platform.available_types if platform.available_types is not None else specified
+        return JSONResponse({"types": build_catalog(set(available), specified), "available": sorted(available),
+                             "demo": demo_info})
+
+    async def check_source(request):
+        auth(request, "engineer")
+        qp = request.query_params
+        doc = await platform.check_source(await body(request), create=qp.get("mode", "create") == "create",
+                                          source_id=qp.get("source_id"))
+        return JSONResponse({"ok": True, "config": doc})
+
+    async def test_unsaved(request):
+        who = auth(request, "engineer")
+        qp = request.query_params
+        res = await platform.test_unsaved(await body(request), who["user"], create=qp.get("mode", "create") == "create",
+                                          source_id=qp.get("source_id"))
         return JSONResponse(res, status_code=200 if res.get("ok") else 502)
 
     async def tags(request):
@@ -157,6 +182,9 @@ def create_app(platform: Platform, tokens: dict[str, dict]) -> Starlette:
         Route("/api/me", me),
         Route("/api/sources", list_sources, methods=["GET"]),
         Route("/api/sources", create_source, methods=["POST"]),
+        Route("/api/catalog", get_catalog),
+        Route("/api/sources-check", check_source, methods=["POST"]),
+        Route("/api/sources-test", test_unsaved, methods=["POST"]),
         Route("/api/sources/{sid}", get_source, methods=["GET"]),
         Route("/api/sources/{sid}", update_source, methods=["PUT"]),
         Route("/api/sources/{sid}", delete_source, methods=["DELETE"]),

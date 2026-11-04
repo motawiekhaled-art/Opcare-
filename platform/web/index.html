@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Opcare DAQ – Live values</title>
+<title>Opcare DAQ</title>
 <link rel="icon" href="/static/opcare-logo.png">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -14,8 +14,12 @@
     <span class="divider" aria-hidden="true"></span>
     <div>
       <div class="app-title">Data Acquisition Platform</div>
-      <div class="app-sub">Live values</div>
+      <div class="app-sub" id="app-sub">Live values</div>
     </div>
+    <nav class="tabs" aria-label="Main">
+      <a href="#/live" id="tab-live" class="tab">Live values</a>
+      <a href="#/sources" id="tab-sources" class="tab">Sources</a>
+    </nav>
   </div>
   <div class="top-right">
     <span class="live" id="live" data-state="connecting"><span class="dot" aria-hidden="true"></span><span id="live-text">Connecting</span></span>
@@ -25,7 +29,7 @@
 </header>
 <div class="accent" aria-hidden="true"><span></span><i></i></div>
 
-<main class="layout">
+<main class="layout" id="view-live">
   <section class="panel sources" aria-labelledby="h-sources">
     <h2 id="h-sources">Sources</h2>
     <div id="source-list" class="source-list"><p class="muted">Loading…</p></div>
@@ -78,6 +82,18 @@
   </section>
 </main>
 
+<main id="view-sources" class="page" hidden>
+  <div class="page-head">
+    <div><h1>Sources</h1><p class="muted">Data sources this platform acquires from. Each runs its own connector at the site.</p></div>
+    <a class="btn primary" href="#/sources/new" id="new-source">New source</a>
+  </div>
+  <div class="panel"><div class="table-wrap plain"><table class="grid" id="sources-table"></table></div></div>
+</main>
+
+<main id="view-editor" class="page" hidden></main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
 <div class="modal" id="login" hidden>
   <form class="modal-box" id="login-form">
     <img src="/static/opcare-logo.png" alt="Opcare Smart Services" class="logo">
@@ -98,5 +114,6 @@
 </div>
 
 <script src="/static/app.js"></script>
+<script src="/static/config.js"></script>
 </body>
 </html>
