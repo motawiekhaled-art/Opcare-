@@ -185,7 +185,8 @@ async def _full_stack():
 
     try:
         # auth and roles
-        assert (await call("GET", f"{base}/api/health"))[0] == 200
+        status, health = await call("GET", f"{base}/api/health")
+        assert status == 200 and "login_hint" not in health          # only the demo may offer a token
         assert (await call("GET", f"{base}/api/sources"))[0] == 401
         assert (await call("POST", f"{base}/api/sources", "t-view", source_cfg(sim_port)))[0] == 403
 

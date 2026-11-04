@@ -1,5 +1,7 @@
 # opcare-daq
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/motawiekhaled-art/Opcare-?quickstart=1)
+
 Opcare Smart Services — Data Acquisition Platform, main repository (closed source).
 Layout follows Architecture document OSS-DAQ-ARC-001 section 13.1. Only the parts built so far are present.
 
@@ -15,6 +17,14 @@ tools/demo/                 One-command demo: simulated substation -> connector 
 
 Still to come: alarms, the container-based production edge agent, other connectors,
 `video/`, `deploy/`. The IEC 104 connector lives in its own GPL repository (`opcare-connector-iec104`).
+
+## Try it in the browser (nothing to install)
+
+Click **Open in GitHub Codespaces** above, or share this link with anyone who has access to the repository:
+`https://codespaces.new/motawiekhaled-art/Opcare-?quickstart=1`
+
+GitHub starts the demo in the cloud and opens it in a new tab (first start about 2 minutes, later starts
+faster). Sign in with the pre-filled demo token. Details: `.devcontainer/README.md`.
 
 ## Run everything
 
