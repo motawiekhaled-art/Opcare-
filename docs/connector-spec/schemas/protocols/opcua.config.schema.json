@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/protocols/opcua.config.schema.json",
+  "title": "OPC UA client configuration",
+  "allOf": [
+    {
+      "$ref": "../config-envelope.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "opcua"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "endpoint_url": {
+              "type": "string",
+              "pattern": "^opc\\.tcp://"
+            },
+            "security_policy": {
+              "enum": [
+                "None",
+                "Basic256Sha256",
+                "Aes128_Sha256_RsaOaep",
+                "Aes256_Sha256_RsaPss"
+              ],
+              "default": "Basic256Sha256"
+            },
+            "security_mode": {
+              "enum": [
+                "None",
+                "Sign",
+                "SignAndEncrypt"
+              ],
+              "default": "SignAndEncrypt"
+            },
+            "auth": {
+              "enum": [
+                "anonymous",
+                "username",
+                "certificate"
+              ],
+              "default": "anonymous"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "user_cert_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "user_key_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "client_cert_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "client_key_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "trusted_server_thumbprints": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{40}$"
+              }
+            },
+            "insecure_skip_verify": {
+              "type": "boolean",
+              "default": false
+            },
+            "session_timeout_ms": {
+              "type": "integer",
+              "minimum": 10000,
+              "maximum": 3600000,
+              "default": 60000
+            }
+          },
+          "required": [
+            "endpoint_url"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "auth": {
+                    "const": "username"
+                  }
+                },
+                "required": [
+                  "auth"
+                ]
+              },
+              "then": {
+                "required": [
+                  "username",
+                  "password_ref"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "auth": {
+                    "const": "certificate"
+                  }
+                },
+                "required": [
+                  "auth"
+                ]
+              },
+              "then": {
+                "required": [
+                  "user_cert_ref",
+                  "user_key_ref"
+                ]
+              }
+            },
+            {
+              "if": {
+                "not": {
+                  "properties": {
+                    "security_policy": {
+                      "const": "None"
+                    }
+                  },
+                  "required": [
+                    "security_policy"
+                  ]
+                }
+              },
+              "then": {
+                "required": [
+                  "client_cert_ref",
+                  "client_key_ref"
+                ]
+              }
+            }
+          ]
+        },
+        "acquisition": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/acquisitionCommon"
+            }
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "subscribe",
+                "poll"
+              ],
+              "default": "subscribe"
+            },
+            "publishing_interval_ms": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 3600000,
+              "default": 1000
+            },
+            "sampling_interval_ms": {
+              "type": "integer",
+              "minimum": -1,
+              "maximum": 3600000,
+              "default": -1
+            },
+            "queue_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 10
+            },
+            "max_items_per_subscription": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000,
+              "default": 1000
+            }
+          },
+          "unevaluatedProperties": false
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "node_id": {
+                    "type": "string",
+                    "pattern": "^(ns=\\d+|nsu=[^;]+);[isgb]=.+$|^i=\\d+$"
+                  }
+                },
+                "required": [
+                  "node_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

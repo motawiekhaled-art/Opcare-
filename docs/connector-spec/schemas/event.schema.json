@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/event.schema.json",
+  "title": "Event (topic opcare/v1/{site}/event/{source_id})",
+  "type": "object",
+  "properties": {
+    "spec": {
+      "$ref": "common.schema.json#/$defs/spec"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/ulid"
+    },
+    "src": {
+      "$ref": "common.schema.json#/$defs/sourceId"
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$"
+    },
+    "severity": {
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "ts": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "device": {
+      "type": "string"
+    },
+    "tag": {
+      "$ref": "common.schema.json#/$defs/tagId"
+    },
+    "attrs": {
+      "type": "object"
+    },
+    "camera": {
+      "$ref": "common.schema.json#/$defs/tagId"
+    },
+    "zone": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "bbox": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "x, y, width, height as fractions of the frame"
+    },
+    "track_id": {
+      "type": "integer"
+    },
+    "snapshot": {
+      "type": "string"
+    },
+    "clip": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "spec",
+    "id",
+    "src",
+    "type",
+    "severity",
+    "ts",
+    "message"
+  ],
+  "additionalProperties": false
+}

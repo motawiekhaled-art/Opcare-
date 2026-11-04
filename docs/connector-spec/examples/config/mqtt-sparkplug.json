@@ -1,0 +1,38 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ss-giza-220kv",
+  "source_id": "mqtt-solar-sparkplug",
+  "type": "mqtt",
+  "name": "mqtt-solar-sparkplug",
+  "enabled": true,
+  "connection": {
+    "broker_url": "mqtt://10.41.0.2:1883",
+    "subscriptions": [
+      {
+        "topic_filter": "spBv1.0/solar/#"
+      }
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "pv-aswan.inv-07.ac-power",
+      "address": {
+        "format": "sparkplug_b",
+        "group_id": "solar",
+        "edge_node_id": "block-2",
+        "device_id": "inv-07",
+        "metric": "AC/Power"
+      },
+      "data_type": "float",
+      "unit": "kW"
+    }
+  ]
+}

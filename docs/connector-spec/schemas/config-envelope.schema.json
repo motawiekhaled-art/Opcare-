@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/config-envelope.schema.json",
+  "title": "Configuration envelope (topic opcare/v1/{site}/config/{source_id}, retained)",
+  "type": "object",
+  "properties": {
+    "spec": {
+      "$ref": "common.schema.json#/$defs/spec"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "site": {
+      "$ref": "common.schema.json#/$defs/siteId"
+    },
+    "source_id": {
+      "$ref": "common.schema.json#/$defs/sourceId"
+    },
+    "type": {
+      "$ref": "common.schema.json#/$defs/connectorType"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "connection": {
+      "type": "object"
+    },
+    "acquisition": {
+      "$ref": "common.schema.json#/$defs/acquisitionCommon"
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/point"
+      },
+      "maxItems": 100000
+    }
+  },
+  "required": [
+    "spec",
+    "revision",
+    "site",
+    "source_id",
+    "type",
+    "enabled",
+    "connection",
+    "points"
+  ],
+  "additionalProperties": false
+}

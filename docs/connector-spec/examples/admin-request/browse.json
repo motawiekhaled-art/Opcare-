@@ -1,0 +1,13 @@
+{
+  "spec": "1.0",
+  "request_id": "1f0c2a8e-8a7b-4c2e-b0f4-0f7c7f5d2e11",
+  "op": "browse",
+  "args": {
+    "path": "F21LD0/MMXU1",
+    "depth": 1,
+    "max_items": 500
+  },
+  "timeout_ms": 15000,
+  "requested_by": "eng.ahmed",
+  "ts": "2026-11-03T18:10:00.000Z"
+}

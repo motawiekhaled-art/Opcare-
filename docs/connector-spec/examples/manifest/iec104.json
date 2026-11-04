@@ -1,0 +1,21 @@
+{
+  "spec": "1.0",
+  "type": "iec104",
+  "name": "IEC 60870-5-104 master",
+  "version": "1.0.0",
+  "license": "GPL-3.0-only",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": {
+    "modes": [
+      "subscribe"
+    ],
+    "browse": false,
+    "read_now": true,
+    "device_timestamps": true,
+    "tls": true
+  },
+  "limits": {
+    "max_points": 20000,
+    "min_scan_ms": 1000
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/admin-response.schema.json",
+  "title": "Admin response (topic opcare/v1/{site}/admin/{source_id}/res)",
+  "type": "object",
+  "properties": {
+    "spec": {
+      "$ref": "common.schema.json#/$defs/spec"
+    },
+    "request_id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "src": {
+      "$ref": "common.schema.json#/$defs/sourceId"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "ts": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "done": {
+      "type": "boolean",
+      "default": true
+    },
+    "cursor": {
+      "type": "string"
+    },
+    "result": {
+      "type": "object"
+    },
+    "error": {
+      "$ref": "common.schema.json#/$defs/error"
+    }
+  },
+  "required": [
+    "spec",
+    "request_id",
+    "src",
+    "ok",
+    "ts",
+    "done"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "ok": {
+        "const": true
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "result"
+    ]
+  },
+  "else": {
+    "required": [
+      "error"
+    ]
+  }
+}

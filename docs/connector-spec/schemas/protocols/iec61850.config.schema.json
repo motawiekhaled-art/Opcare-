@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/protocols/iec61850.config.schema.json",
+  "title": "IEC 61850 MMS client configuration",
+  "allOf": [
+    {
+      "$ref": "../config-envelope.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "iec61850"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "$ref": "../common.schema.json#/$defs/host"
+            },
+            "port": {
+              "$ref": "../common.schema.json#/$defs/port",
+              "default": 102
+            },
+            "ied_name": {
+              "type": "string"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 120000,
+              "default": 10000
+            },
+            "tls": {
+              "$ref": "../common.schema.json#/$defs/tls"
+            },
+            "acse_auth": {
+              "type": "object",
+              "properties": {
+                "password_ref": {
+                  "$ref": "../common.schema.json#/$defs/secretRef"
+                }
+              },
+              "required": [
+                "password_ref"
+              ],
+              "additionalProperties": false
+            },
+            "scl_file_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            }
+          },
+          "required": [
+            "host",
+            "ied_name"
+          ],
+          "additionalProperties": false
+        },
+        "acquisition": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/acquisitionCommon"
+            }
+          ],
+          "properties": {
+            "reports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rcb_ref": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_]{1,64}/[A-Za-z0-9_]+\\.(BR|RP)\\.[A-Za-z0-9_]+$"
+                  },
+                  "buffered": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "trigger_options": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "enum": [
+                        "dchg",
+                        "qchg",
+                        "dupd",
+                        "integrity",
+                        "gi"
+                      ]
+                    }
+                  },
+                  "integrity_period_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "buf_time_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reserve": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "rcb_ref"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "poll_unreported": {
+              "type": "boolean",
+              "default": true
+            },
+            "gi_on_connect": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "unevaluatedProperties": false
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "object_ref": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_]{1,64}/[A-Za-z0-9_]+(\\.[A-Za-z0-9_\\[\\]]+)+$"
+                  },
+                  "fc": {
+                    "enum": [
+                      "MX",
+                      "ST",
+                      "CF",
+                      "DC",
+                      "EX"
+                    ]
+                  }
+                },
+                "required": [
+                  "object_ref",
+                  "fc"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

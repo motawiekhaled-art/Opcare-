@@ -1,0 +1,42 @@
+{
+  "spec": "1.0",
+  "revision": 3,
+  "site": "ss-giza-220kv",
+  "source_id": "opcua-plant-dcs",
+  "type": "opcua",
+  "name": "opcua-plant-dcs",
+  "enabled": true,
+  "connection": {
+    "endpoint_url": "opc.tcp://10.30.0.5:4840",
+    "security_policy": "Basic256Sha256",
+    "security_mode": "SignAndEncrypt",
+    "auth": "username",
+    "username": "opcare-reader",
+    "password_ref": "dcs-opcua-password",
+    "client_cert_ref": "opcare-client-cert",
+    "client_key_ref": "opcare-client-key",
+    "trusted_server_thumbprints": [
+      "3A1F5C0D9E8B7A6C5D4E3F2A1B0C9D8E7F6A5B4C"
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000,
+    "mode": "subscribe",
+    "publishing_interval_ms": 1000,
+    "queue_size": 10
+  },
+  "points": [
+    {
+      "tag_id": "pp-north.unit1.boiler.drum-level",
+      "address": {
+        "node_id": "nsu=urn:vendor:dcs;s=U1.BLR.LT101.PV"
+      },
+      "data_type": "float",
+      "unit": "mm"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ss-giza-220kv",
+  "source_id": "iec61850-x",
+  "type": "iec61850",
+  "name": "iec61850-x",
+  "enabled": true,
+  "connection": {
+    "host": "h",
+    "ied_name": "F21"
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "a.b",
+      "address": {
+        "object_ref": "F21LD0/CSWI1.Pos.Oper.ctlVal",
+        "fc": "CO"
+      },
+      "data_type": "bool"
+    }
+  ]
+}

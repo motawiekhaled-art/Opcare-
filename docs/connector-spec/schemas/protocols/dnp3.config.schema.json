@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/protocols/dnp3.config.schema.json",
+  "title": "DNP3 master (TCP) configuration",
+  "allOf": [
+    {
+      "$ref": "../config-envelope.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "dnp3"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "$ref": "../common.schema.json#/$defs/host"
+            },
+            "port": {
+              "$ref": "../common.schema.json#/$defs/port",
+              "default": 20000
+            },
+            "master_address": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65519,
+              "default": 1
+            },
+            "outstation_address": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65519,
+              "default": 10
+            },
+            "response_timeout_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 120000,
+              "default": 5000
+            },
+            "keep_alive_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600,
+              "default": 60
+            },
+            "tls": {
+              "$ref": "../common.schema.json#/$defs/tls"
+            }
+          },
+          "required": [
+            "host",
+            "outstation_address"
+          ],
+          "additionalProperties": false
+        },
+        "acquisition": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/acquisitionCommon"
+            }
+          ],
+          "properties": {
+            "integrity_on_connect": {
+              "type": "boolean",
+              "default": true
+            },
+            "integrity_period_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400,
+              "default": 3600
+            },
+            "class_polls": {
+              "type": "object",
+              "properties": {
+                "class1_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3600000,
+                  "default": 5000
+                },
+                "class2_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3600000,
+                  "default": 5000
+                },
+                "class3_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3600000,
+                  "default": 5000
+                }
+              },
+              "additionalProperties": false
+            },
+            "unsolicited": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "unevaluatedProperties": false
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "group": {
+                    "enum": [
+                      "binary_input",
+                      "double_bit_binary_input",
+                      "analog_input",
+                      "counter",
+                      "frozen_counter",
+                      "binary_output_status",
+                      "analog_output_status"
+                    ]
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  }
+                },
+                "required": [
+                  "group",
+                  "index"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

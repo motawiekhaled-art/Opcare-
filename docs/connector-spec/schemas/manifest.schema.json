@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/manifest.schema.json",
+  "title": "Connector manifest (/opcare/manifest.json)",
+  "type": "object",
+  "properties": {
+    "spec": {
+      "$ref": "common.schema.json#/$defs/spec"
+    },
+    "type": {
+      "$ref": "common.schema.json#/$defs/connectorType"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$"
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX expression"
+    },
+    "config_schema": {
+      "type": "string"
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "modes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "poll",
+              "subscribe",
+              "report"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "browse": {
+          "type": "boolean"
+        },
+        "read_now": {
+          "type": "boolean"
+        },
+        "device_timestamps": {
+          "type": "boolean"
+        },
+        "tls": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "modes",
+        "browse",
+        "read_now"
+      ],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_points": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_scan_ms": {
+          "type": "integer",
+          "minimum": 10
+        }
+      },
+      "required": [
+        "max_points",
+        "min_scan_ms"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "spec",
+    "type",
+    "name",
+    "version",
+    "license",
+    "config_schema",
+    "capabilities",
+    "limits"
+  ],
+  "additionalProperties": false
+}

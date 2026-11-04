@@ -1,0 +1,145 @@
+asyncapi: 3.0.0
+info:
+  title: Opcare DAQ Connector Interface
+  version: 1.0.0-draft.1
+  description: |
+    MQTT interface between an Opcare DAQ connector and the platform, seen from the connector.
+    Normative text: CONNECTOR_SPEC.md (OSS-DAQ-CON-001). Payload schemas are JSON Schema 2020-12
+    files in ./schemas; where tooling cannot resolve them, the schema files are authoritative.
+    All operations use QoS 1. The status channel is retained and also carries the Last Will.
+  contact:
+    name: Opcare Smart Services
+    url: https://www.opcaresystems.com
+defaultContentType: application/json
+
+servers:
+  local-broker:
+    host: 'broker:1883'
+    protocol: mqtt
+    protocolVersion: '5'
+    description: Mosquitto broker on the same edge node. Address given in OPCARE_MQTT_URL.
+
+channels:
+  config:
+    address: 'opcare/v1/{site}/config/{sourceId}'
+    description: Configuration document for this source. Retained. Empty retained message = source deleted.
+    parameters: &params
+      site:
+        description: OPCARE_SITE, pattern ^[a-z0-9][a-z0-9-]{0,62}$
+      sourceId:
+        description: OPCARE_SOURCE_ID, pattern ^[a-z0-9][a-z0-9-]{0,62}$
+    messages:
+      config:
+        $ref: '#/components/messages/config'
+  data:
+    address: 'opcare/v1/{site}/data/{sourceId}'
+    description: Batches of values. Not retained.
+    parameters: *params
+    messages:
+      valueBatch:
+        $ref: '#/components/messages/valueBatch'
+  event:
+    address: 'opcare/v1/{site}/event/{sourceId}'
+    description: Operational events (connection, configuration, guard). Not retained.
+    parameters: *params
+    messages:
+      event:
+        $ref: '#/components/messages/event'
+  status:
+    address: 'opcare/v1/{site}/status/{sourceId}'
+    description: Heartbeat every 10 s and on every state change. Retained. Last Will publishes the offline form.
+    parameters: *params
+    messages:
+      status:
+        $ref: '#/components/messages/status'
+  adminRequest:
+    address: 'opcare/v1/{site}/admin/{sourceId}/req'
+    description: Admin requests from the platform (ping, get_diagnostics, test_connection, browse, read_now, reload_config).
+    parameters: *params
+    messages:
+      adminRequest:
+        $ref: '#/components/messages/adminRequest'
+  adminResponse:
+    address: 'opcare/v1/{site}/admin/{sourceId}/res'
+    description: Responses matched by request_id. Large results are paged with done=false and cursor.
+    parameters: *params
+    messages:
+      adminResponse:
+        $ref: '#/components/messages/adminResponse'
+
+operations:
+  receiveConfig:
+    action: receive
+    channel:
+      $ref: '#/channels/config'
+    summary: Receive and apply configuration (spec section 5.2, 6).
+    bindings: &qos1
+      mqtt:
+        qos: 1
+  publishValues:
+    action: send
+    channel:
+      $ref: '#/channels/data'
+    summary: Publish value batches (spec section 7).
+    bindings: *qos1
+  publishEvent:
+    action: send
+    channel:
+      $ref: '#/channels/event'
+    summary: Publish operational events (spec section 10).
+    bindings: *qos1
+  publishStatus:
+    action: send
+    channel:
+      $ref: '#/channels/status'
+    summary: Publish retained heartbeat (spec section 9).
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+  receiveAdminRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/adminRequest'
+    summary: Receive admin requests (spec section 11).
+    bindings: *qos1
+  sendAdminResponse:
+    action: send
+    channel:
+      $ref: '#/channels/adminResponse'
+    summary: Answer admin requests before timeout_ms (spec section 11).
+    bindings: *qos1
+
+components:
+  messages:
+    config:
+      name: config
+      title: Configuration document
+      payload:
+        $ref: './schemas/config-envelope.schema.json'
+      description: Type-specific rules in ./schemas/protocols/{type}.config.schema.json
+    valueBatch:
+      name: valueBatch
+      title: Value batch
+      payload:
+        $ref: './schemas/value-batch.schema.json'
+    event:
+      name: event
+      title: Event
+      payload:
+        $ref: './schemas/event.schema.json'
+    status:
+      name: status
+      title: Status heartbeat / Last Will
+      payload:
+        $ref: './schemas/status.schema.json'
+    adminRequest:
+      name: adminRequest
+      title: Admin request
+      payload:
+        $ref: './schemas/admin-request.schema.json'
+    adminResponse:
+      name: adminResponse
+      title: Admin response
+      payload:
+        $ref: './schemas/admin-response.schema.json'

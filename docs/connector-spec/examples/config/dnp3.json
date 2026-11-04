@@ -1,0 +1,49 @@
+{
+  "spec": "1.0",
+  "revision": 2,
+  "site": "ss-giza-220kv",
+  "source_id": "dnp3-ps-west",
+  "type": "dnp3",
+  "name": "dnp3-ps-west",
+  "enabled": true,
+  "connection": {
+    "host": "10.50.0.20",
+    "port": 20000,
+    "master_address": 1,
+    "outstation_address": 10
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000,
+    "integrity_on_connect": true,
+    "integrity_period_s": 3600,
+    "class_polls": {
+      "class1_ms": 5000,
+      "class2_ms": 5000,
+      "class3_ms": 30000
+    },
+    "unsolicited": false
+  },
+  "points": [
+    {
+      "tag_id": "ps-west.reservoir.level",
+      "address": {
+        "group": "analog_input",
+        "index": 0
+      },
+      "data_type": "float",
+      "unit": "m"
+    },
+    {
+      "tag_id": "ps-west.pump-1.running",
+      "address": {
+        "group": "binary_input",
+        "index": 3
+      },
+      "data_type": "bool"
+    }
+  ]
+}

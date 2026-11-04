@@ -1,0 +1,7 @@
+{
+  "spec": "1.0",
+  "src": "modbus-mcc-01",
+  "kind": "connector",
+  "boot": "6c1e3b9e-1f7e-4a8e-9a33-3f1c2d4b5a60",
+  "state": "running"
+}

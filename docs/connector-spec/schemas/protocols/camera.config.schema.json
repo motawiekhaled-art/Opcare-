@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/protocols/camera.config.schema.json",
+  "title": "IP camera (ONVIF / RTSP) configuration",
+  "allOf": [
+    {
+      "$ref": "../config-envelope.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "camera"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "$ref": "../common.schema.json#/$defs/host"
+            },
+            "onvif_port": {
+              "$ref": "../common.schema.json#/$defs/port",
+              "default": 80
+            },
+            "onvif": {
+              "type": "boolean"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "profile_token": {
+              "type": "string"
+            },
+            "rtsp_url": {
+              "type": "string",
+              "pattern": "^rtsps?://"
+            },
+            "rtsp_transport": {
+              "enum": [
+                "tcp",
+                "udp"
+              ],
+              "default": "tcp"
+            },
+            "tls": {
+              "$ref": "../common.schema.json#/$defs/tls"
+            }
+          },
+          "required": [
+            "host",
+            "onvif"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "onvif": {
+                    "const": false
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "rtsp_url"
+                ]
+              }
+            }
+          ]
+        },
+        "acquisition": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/acquisitionCommon"
+            }
+          ],
+          "properties": {},
+          "unevaluatedProperties": false
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "enum": [
+                      "online",
+                      "fps",
+                      "bitrate_kbps",
+                      "resolution",
+                      "codec",
+                      "onvif_event"
+                    ]
+                  },
+                  "topic": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "metric"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "metric": {
+                          "const": "onvif_event"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "topic"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

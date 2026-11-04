@@ -1,0 +1,48 @@
+{
+  "spec": "1.0",
+  "revision": 2,
+  "site": "ss-giza-220kv",
+  "source_id": "modbus-pumps-rs485",
+  "type": "modbus",
+  "name": "modbus-pumps-rs485",
+  "enabled": true,
+  "connection": {
+    "transport": "rtu",
+    "serial": {
+      "device": "/dev/ttyS1",
+      "baud": 19200,
+      "parity": "E"
+    },
+    "devices": [
+      {
+        "id": "pump-1",
+        "unit_id": 1
+      }
+    ],
+    "inter_request_delay_ms": 20
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "ps-west.pump-1.speed",
+      "address": {
+        "device": "pump-1",
+        "table": "input_register",
+        "address": 12,
+        "encoding": "uint16"
+      },
+      "data_type": "float",
+      "scaling": {
+        "gain": 0.1,
+        "offset": 0
+      },
+      "unit": "Hz"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux · all tests with real Mosquitto + TimescaleDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      timescaledb:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: opcare_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Mosquitto broker
+        run: |
+          mkdir -p "$RUNNER_TEMP/mosquitto"
+          printf 'listener 1883\nallow_anonymous true\n' > "$RUNNER_TEMP/mosquitto/mosquitto.conf"
+          docker run -d --name mosquitto -p 1883:1883 \
+            -v "$RUNNER_TEMP/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf" eclipse-mosquitto:2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install packages
+        run: |
+          pip install starlette uvicorn jsonschema referencing pytest pyyaml \
+            "paho-mqtt>=2.1,<3" "psycopg[binary]>=3.2" playwright
+          python -m playwright install --with-deps chromium
+      - name: Connector spec examples
+        run: python docs/connector-spec/tools/validate_examples.py
+      - name: Tests (unit, end-to-end, browser, real broker + database)
+        env:
+          OPCARE_TEST_MQTT_URL: mqtt://localhost:1883
+          OPCARE_TEST_PG_DSN: postgresql://postgres:postgres@localhost:5432/opcare_ci
+        run: python -m pytest connectors platform -v -rs
+      - name: Every database statement on PostgreSQL + TimescaleDB
+        env:
+          PGPASSWORD: postgres
+        run: python platform/tools/check_postgres.py "host=localhost port=5432 user=postgres dbname=postgres"
+      - name: Broker log
+        if: always()
+        run: docker logs mosquitto | tail -50
+
+  launcher:
+    name: ${{ matrix.os }} · tests + double-click launcher self-test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests
+        run: |
+          pip install starlette uvicorn jsonschema referencing pytest
+          python -m pytest connectors platform -v -rs -k "not gui"
+      - name: Windows launcher self-test
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call "Start Opcare Demo (Windows).bat" --self-test 120
+      - name: Mac launcher self-test
+        if: runner.os == 'macOS'
+        run: bash "Start Opcare Demo (Mac).command" --self-test 120
+
+  docker:
+    name: Container images build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Modbus connector image
+        run: docker build -f connectors/modbus/Dockerfile -t opcare/connector-modbus:ci .
+      - name: Platform image
+        run: docker build -f platform/Dockerfile -t opcare/daq-platform:ci .
+      - name: "Connector image refuses to start without its environment (spec: exit code 2)"
+        run: |
+          set +e
+          docker run --rm --read-only opcare/connector-modbus:ci
+          code=$?
+          echo "exit code $code"
+          test "$code" -eq 2

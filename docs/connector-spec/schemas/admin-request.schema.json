@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/admin-request.schema.json",
+  "title": "Admin request (topic opcare/v1/{site}/admin/{source_id}/req)",
+  "type": "object",
+  "properties": {
+    "spec": {
+      "$ref": "common.schema.json#/$defs/spec"
+    },
+    "request_id": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "op": {
+      "type": "string"
+    },
+    "args": {
+      "type": "object",
+      "default": {}
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 300000,
+      "default": 10000
+    },
+    "requested_by": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "ts": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "spec",
+    "request_id",
+    "op",
+    "timeout_ms",
+    "requested_by",
+    "ts"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "browse"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3,
+                "default": 1
+              },
+              "max_items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5000,
+                "default": 500
+              },
+              "cursor": {
+                "type": "string"
+              },
+              "listen_s": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 60
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "read_now"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "tag_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/tagId"
+                },
+                "maxItems": 100
+              },
+              "addresses": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "object"
+                    },
+                    "data_type": {
+                      "$ref": "common.schema.json#/$defs/dataType"
+                    }
+                  },
+                  "required": [
+                    "address",
+                    "data_type"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false,
+            "minProperties": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "test_connection"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object",
+            "properties": {
+              "config": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ],
+  "description": "Known ops: ping, get_diagnostics, test_connection, browse, read_now, reload_config. Unknown ops must be answered with OP_UNSUPPORTED."
+}

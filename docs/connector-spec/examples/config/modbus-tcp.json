@@ -1,0 +1,74 @@
+{
+  "spec": "1.0",
+  "revision": 7,
+  "site": "ss-giza-220kv",
+  "source_id": "modbus-mcc-01",
+  "type": "modbus",
+  "name": "MCC-01 energy meters",
+  "enabled": true,
+  "connection": {
+    "transport": "tcp",
+    "host": "10.20.1.31",
+    "port": 502,
+    "devices": [
+      {
+        "id": "meter-03",
+        "unit_id": 3,
+        "name": "Incomer meter"
+      },
+      {
+        "id": "meter-04",
+        "unit_id": 4
+      }
+    ],
+    "max_registers_per_read": 100,
+    "max_gap": 10
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "ss-giza.mcc01.meter-03.p-total",
+      "address": {
+        "device": "meter-03",
+        "table": "holding_register",
+        "address": 3059,
+        "encoding": "float32",
+        "word_order": "big"
+      },
+      "data_type": "float",
+      "unit": "kW",
+      "deadband": {
+        "mode": "abs",
+        "value": 0.5
+      }
+    },
+    {
+      "tag_id": "ss-giza.mcc01.meter-03.breaker-closed",
+      "address": {
+        "device": "meter-03",
+        "table": "discrete_input",
+        "address": 0,
+        "encoding": "bool"
+      },
+      "data_type": "bool"
+    },
+    {
+      "tag_id": "ss-giza.mcc01.meter-04.alarm-bit-2",
+      "address": {
+        "device": "meter-04",
+        "table": "holding_register",
+        "address": 100,
+        "encoding": "bit",
+        "bit": 2
+      },
+      "data_type": "bool",
+      "scan_ms": 500
+    }
+  ]
+}

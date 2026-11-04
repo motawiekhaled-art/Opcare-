@@ -1,0 +1,43 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ss-giza-220kv",
+  "source_id": "mqtt-water-meters",
+  "type": "mqtt",
+  "name": "mqtt-water-meters",
+  "enabled": true,
+  "connection": {
+    "broker_url": "mqtts://10.40.0.9:8883",
+    "auth": "username",
+    "username": "opcare",
+    "password_ref": "meters-broker-password",
+    "ca_cert_ref": "meters-ca",
+    "subscriptions": [
+      {
+        "topic_filter": "meters/+/telemetry",
+        "qos": 1
+      }
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "wn-cairo.zone3.meter-118.flow",
+      "address": {
+        "format": "json",
+        "topic": "meters/118/telemetry",
+        "value_pointer": "/flow_m3h",
+        "timestamp_pointer": "/ts",
+        "timestamp_format": "epoch_ms"
+      },
+      "data_type": "float",
+      "unit": "m3/h"
+    }
+  ]
+}

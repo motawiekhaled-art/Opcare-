@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/common.schema.json",
+  "title": "Common definitions",
+  "$defs": {
+    "spec": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+$",
+      "description": "Spec version MAJOR.MINOR"
+    },
+    "siteId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "sourceId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "tagId": {
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[a-z0-9][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "RFC 3339 UTC with milliseconds"
+    },
+    "quality": {
+      "type": "integer",
+      "enum": [
+        192,
+        216,
+        64,
+        68,
+        80,
+        84,
+        0,
+        4,
+        12,
+        24,
+        28
+      ],
+      "description": "192 GOOD, 216 GOOD_LOCAL_OVERRIDE, 64 UNCERTAIN, 68 UNCERTAIN_LAST_USABLE, 80 UNCERTAIN_SENSOR_NOT_ACCURATE, 84 UNCERTAIN_EU_EXCEEDED, 0 BAD, 4 BAD_CONFIG_ERROR, 12 BAD_DEVICE_FAILURE, 24 BAD_COMM_FAILURE, 28 BAD_OUT_OF_SERVICE"
+    },
+    "dataType": {
+      "enum": [
+        "bool",
+        "int",
+        "float",
+        "string",
+        "enum"
+      ]
+    },
+    "connectorType": {
+      "enum": [
+        "modbus",
+        "opcua",
+        "mqtt",
+        "iec61850",
+        "iec104",
+        "dnp3",
+        "camera"
+      ]
+    },
+    "errorCode": {
+      "enum": [
+        "CFG_INVALID",
+        "CFG_UNSUPPORTED_SPEC",
+        "SECRET_MISSING",
+        "CONN_REFUSED",
+        "CONN_TIMEOUT",
+        "CONN_CLOSED",
+        "TLS_FAILED",
+        "AUTH_FAILED",
+        "ADDR_INVALID",
+        "POINT_NOT_FOUND",
+        "TYPE_MISMATCH",
+        "DEVICE_BUSY",
+        "OP_UNSUPPORTED",
+        "OP_FORBIDDEN",
+        "TIMEOUT",
+        "PROTOCOL_ERROR",
+        "INTERNAL"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "ts": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "secretRef": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,128}$",
+      "description": "File name inside OPCARE_SECRETS_DIR"
+    },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "tls": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "client_cert_ref": {
+          "$ref": "#/$defs/secretRef"
+        },
+        "client_key_ref": {
+          "$ref": "#/$defs/secretRef"
+        },
+        "ca_cert_ref": {
+          "$ref": "#/$defs/secretRef"
+        },
+        "insecure_skip_verify": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "acquisitionCommon": {
+      "type": "object",
+      "properties": {
+        "default_scan_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400000,
+          "default": 1000
+        },
+        "batch_max_values": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000,
+          "default": 500
+        },
+        "batch_max_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 60000,
+          "default": 1000
+        },
+        "integrity_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400,
+          "default": 900
+        },
+        "request_timeout_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 120000,
+          "default": 3000
+        }
+      }
+    },
+    "deadband": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "abs",
+            "pct"
+          ]
+        },
+        "value": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mode",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "scaling": {
+      "type": "object",
+      "properties": {
+        "gain": {
+          "type": "number",
+          "default": 1
+        },
+        "offset": {
+          "type": "number",
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "point": {
+      "type": "object",
+      "properties": {
+        "tag_id": {
+          "$ref": "#/$defs/tagId"
+        },
+        "address": {
+          "type": "object"
+        },
+        "data_type": {
+          "$ref": "#/$defs/dataType"
+        },
+        "scaling": {
+          "$ref": "#/$defs/scaling"
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "deadband": {
+          "$ref": "#/$defs/deadband"
+        },
+        "scan_ms": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400000
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "tag_id",
+        "address",
+        "data_type"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
