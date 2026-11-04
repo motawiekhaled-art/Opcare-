@@ -133,7 +133,7 @@ class PahoClient:
         self.c.on_connect = self._resubscribe
 
     def _resubscribe(self, client, userdata, flags, reason_code, properties):
-        for topic, qos in self.subs:
+        for topic, qos in list(self.subs):        # copy: the runtime may subscribe at the same moment
             client.subscribe(topic, qos)
 
     def set_will(self, topic: str, payload: str, qos: int, retain: bool) -> None:

@@ -118,29 +118,45 @@ class PahoBus:
             self.c.tls_set(ca_certs=ca_file, certfile=cert_file, keyfile=key_file)
         self._subs: dict[int, tuple[str, Handler]] = {}
         self._ids = itertools.count(1)
+        self._lock = threading.Lock()    # paho calls back on its own thread while services subscribe
         self.c.on_message = self._dispatch
-        self.c.on_connect = lambda c, u, f, rc, p: [c.subscribe(pat, 1) for pat, _ in self._subs.values()]
+        self.c.on_connect = self._on_connect
         port = self.url.port or (8883 if self.url.scheme == "mqtts" else 1883)
         self.c.connect(self.url.hostname, port, keepalive=30)
         self.c.loop_start()
 
+    def _patterns(self) -> list[tuple[str, Handler]]:
+        with self._lock:
+            return list(self._subs.values())
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        for pat in {p for p, _ in self._patterns()}:     # (re)subscribe after every (re)connect
+            client.subscribe(pat, 1)
+
     def _dispatch(self, client, userdata, msg):
-        for pat, h in list(self._subs.values()):
+        for pat, h in self._patterns():
             if topic_matches(pat, msg.topic):
-                h(msg.topic, msg.payload)
+                try:
+                    h(msg.topic, msg.payload)
+                except Exception:                         # a handler error must never kill the MQTT thread
+                    import logging
+                    logging.getLogger("daq.bus").exception("handler failed for %s", msg.topic)
 
     def publish(self, topic: str, payload: bytes | str, retain: bool = False) -> None:
         self.c.publish(topic, payload, qos=1, retain=retain)
 
     def subscribe(self, pattern: str, handler: Handler) -> int:
-        sid = next(self._ids)
-        self._subs[sid] = (pattern, handler)
+        with self._lock:
+            sid = next(self._ids)
+            self._subs[sid] = (pattern, handler)
         self.c.subscribe(pattern, 1)
         return sid
 
     def unsubscribe(self, sid: int) -> None:
-        pat, _ = self._subs.pop(sid, (None, None))
-        if pat and all(p != pat for p, _ in self._subs.values()):
+        with self._lock:
+            pat, _ = self._subs.pop(sid, (None, None))
+            still_used = any(p == pat for p, _ in self._subs.values())
+        if pat and not still_used:
             self.c.unsubscribe(pat)
 
     def close(self) -> None:
