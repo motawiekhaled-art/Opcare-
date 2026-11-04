@@ -28,7 +28,7 @@ SSE_KEEPALIVE_S = 15
 
 
 def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | None = None,
-               schema_types: set[str] | None = None) -> Starlette:
+               schema_types: set[str] | None = None, login_hint: str | None = None) -> Starlette:
     """demo_info: shown on the configuration screen when running the demo (simulated devices to try).
     schema_types: connector types that have a configuration schema (spec), for the catalog status."""
     store = platform.store
@@ -52,8 +52,10 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
 
     # -------------------------------------------------------------- endpoints
     async def health(request):
-        return JSONResponse({"status": "ok", "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                             "db": store.dialect})
+        res = {"status": "ok", "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "db": store.dialect}
+        if login_hint:          # demo only (run_demo.py --login-hint): the sign-in box offers the demo token
+            res["login_hint"] = login_hint
+        return JSONResponse(res)
 
     async def me(request):
         return JSONResponse(auth(request, "viewer"))

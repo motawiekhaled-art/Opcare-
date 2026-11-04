@@ -30,7 +30,12 @@
     if (!res.ok && res.status !== 502) throw Object.assign(new Error(body?.error?.message || res.statusText), {body});
     return body;
   }
-  function showLogin(failed) { $("login").hidden = false; $("login-error").hidden = !failed; $("token").focus(); }
+  function showLogin(failed) {
+    $("login").hidden = false; $("login-error").hidden = !failed; $("token").focus();
+    if (!failed) fetch("/api/health").then((r) => r.json()).then((h) => {   // demo only: offer the demo token
+      if (h.login_hint && !$("token").value) { $("token").value = h.login_hint; $("login-hint").hidden = false; }
+    }).catch(() => {});
+  }
   $("login-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     token = $("token").value.trim();

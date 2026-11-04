@@ -193,6 +193,8 @@ async def main() -> int:
     ap.add_argument("--token", default=None, help="admin token (default: random)")
     ap.add_argument("--no-faults", action="store_true", help="do not take meter 2 offline periodically")
     ap.add_argument("--open", action="store_true", help="open the web browser when the demo is ready")
+    ap.add_argument("--login-hint", action="store_true",
+                    help="pre-fill the admin token on the sign-in screen (demo links such as GitHub Codespaces)")
     ap.add_argument("--self-test", type=int, metavar="SECONDS", default=0,
                     help="check that live values arrive through the API, then exit (0 = pass); used by CI")
     args = ap.parse_args()
@@ -228,7 +230,8 @@ async def main() -> int:
     else:
         await platform.save_source(cfg, "demo-setup", create=True)
 
-    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info), host=args.host, port=args.port,
+    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info,
+                                                      login_hint=token if args.login_hint else None), host=args.host, port=args.port,
                                            log_level="warning", access_log=False))
     url = f"http://{args.host}:{args.port}/?token={token}"
 
