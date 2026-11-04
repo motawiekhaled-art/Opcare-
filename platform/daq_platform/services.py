@@ -52,8 +52,11 @@ class LiveHub:
 
 
 class Platform:
-    def __init__(self, store: Store, bus, validator: Callable[[str, dict], list[str]]):
+    def __init__(self, store: Store, bus, validator: Callable[[str, dict], list[str]],
+                 available_types: set[str] | None = None):
+        """available_types: connector types that can run (installed); None = do not restrict."""
         self.store, self.bus, self.validate = store, bus, validator
+        self.available_types = available_types
         self.hub = LiveHub()
         self.stats = {"batches": 0, "values": 0, "events": 0, "status": 0, "missing_batches": 0, "rejected": 0}
         self._pending: dict[str, asyncio.Future] = {}
@@ -136,7 +139,12 @@ class Platform:
         return []
 
     # ------------------------------------------------------------ configuration service
-    async def save_source(self, body: dict, user: str, create: bool, source_id: str | None = None) -> dict:
+    async def check_source(self, body: dict, create: bool, source_id: str | None = None) -> dict:
+        """Validate a configuration exactly as saving would, without saving it. Returns the full document."""
+        doc, _ = await self._prepare(body, create, source_id)
+        return doc
+
+    async def _prepare(self, body: dict, create: bool, source_id: str | None) -> tuple[dict, dict | None]:
         if not isinstance(body, dict):
             raise ApiError(400, "BAD_REQUEST", "body must be a JSON object")
         sid = source_id or body.get("source_id")
@@ -154,10 +162,18 @@ class Platform:
             if doc.get("type") else ["type: required"]
         if errors:
             raise ApiError(422, "CFG_INVALID", "configuration is not valid", errors)
+        if self.available_types is not None and doc["type"] not in self.available_types:
+            raise ApiError(422, "CONNECTOR_UNAVAILABLE",
+                           f"no {doc['type']} connector is installed yet; available: {sorted(self.available_types)}")
         owners = {t["tag_id"]: t["source_id"] for t in await self.store.run(self.store.list_tags)}
         taken = [p["tag_id"] for p in doc["points"] if owners.get(p["tag_id"], sid) != sid]
         if taken:
             raise ApiError(409, "TAG_IN_USE", "tag ids already belong to another source", taken[:50])
+        return doc, existing
+
+    async def save_source(self, body: dict, user: str, create: bool, source_id: str | None = None) -> dict:
+        doc, _ = await self._prepare(body, create, source_id)
+        sid = doc["source_id"]
         await self.store.run(self.store.save_source, doc, user)
         self.bus.publish(f"opcare/v1/{doc['site']}/config/{sid}", json.dumps(doc), retain=True)
         await self.store.run(self.store.audit, user, "create_source" if create else "update_source", sid,
@@ -179,16 +195,27 @@ class Platform:
         cfg = await self.store.run(self.store.get_source, source_id)
         if not cfg:
             raise ApiError(404, "NOT_FOUND", f"source {source_id} not found")
+        return await self._relay(cfg["site"], source_id, op, args, user, timeout_ms)
+
+    async def test_unsaved(self, body: dict, user: str, create: bool, source_id: str | None = None,
+                           timeout_ms: int = 15000) -> dict:
+        """'Test connection' before saving: the site's edge agent opens a short-lived connection."""
+        doc = await self.check_source(body, create, source_id)
+        return await self._relay(doc["site"], "edge-agent", "test_connection", {"config": doc}, user, timeout_ms,
+                                 who="the edge agent")
+
+    async def _relay(self, site: str, component: str, op: str, args: dict, user: str, timeout_ms: int,
+                     who: str | None = None) -> dict:
         rid = str(uuid.uuid4())
         fut = self._loop.create_future()
         self._pending[rid] = fut
         req = {"spec": SPEC, "request_id": rid, "op": op, "args": args or {}, "timeout_ms": timeout_ms,
                "requested_by": user, "ts": _iso_now()}
-        self.bus.publish(f"opcare/v1/{cfg['site']}/admin/{source_id}/req", json.dumps(req))
+        self.bus.publish(f"opcare/v1/{site}/admin/{component}/req", json.dumps(req))
         try:
             return await asyncio.wait_for(fut, timeout_ms / 1000 + 1)
         except asyncio.TimeoutError as exc:
-            raise ApiError(504, "TIMEOUT", f"connector {source_id} did not answer (offline?)") from exc
+            raise ApiError(504, "TIMEOUT", f"{who or 'connector ' + component} did not answer (offline?)") from exc
         finally:
             self._pending.pop(rid, None)
 

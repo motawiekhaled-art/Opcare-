@@ -204,16 +204,18 @@
     es = new EventSource(`/api/live?token=${encodeURIComponent(token)}`);
     // On every (re)connect: buffer live messages, load a fresh snapshot, then replay the buffer.
     // The platform stores values before announcing them, so nothing falls between snapshot and stream.
-    es.addEventListener("hello", async () => {
-      loading = true; buffered = [];
-      try { await Promise.all([loadSources(), loadTags()]); } finally {
-        loading = false; const replay = buffered; buffered = []; replay.forEach(handle);
-      }
-      setLive("live", "Live");
-    });
+    es.addEventListener("hello", async () => { await refresh(); setLive("live", "Live"); });
     es.onerror = () => setLive("down", "Reconnecting…");
     es.onmessage = (m) => { const msg = JSON.parse(m.data); if (loading) buffered.push(msg); else handle(msg); };
   }
+  async function refresh() {
+    loading = true; buffered = [];
+    try { await Promise.all([loadSources(), loadTags()]); } finally {
+      loading = false; const replay = buffered; buffered = []; replay.forEach(handle);
+    }
+  }
+  // the configuration screens announce saved/deleted sources so the live view picks up new tags
+  window.addEventListener("opcare:reload", () => { if (token) refresh(); });
   function handle(msg) {
     {
       if (msg.type === "values") {
@@ -227,6 +229,7 @@
         applyFilter(); updateKpis();
       } else if (msg.type === "status") {
         const s = sources.get(msg.source_id);
+        if (!s && !loading && msg.state !== "stopping") { refresh(); return; }   // a source we have not seen yet
         if (s) renderSource({...s, state: msg.state, status: msg.status, revision: msg.status.config_revision ?? s.revision});
       } else if (msg.type === "event") {
         addEvent(msg.event);

@@ -7,12 +7,13 @@ Layout follows Architecture document OSS-DAQ-ARC-001 section 13.1. Only the part
 docs/connector-spec/        Connector specification OSS-DAQ-CON-001: rulebook, schemas, AsyncAPI, examples
 connectors/sdk-python/      Python connector SDK (runtime, value pipeline, guard, test harness)
 connectors/modbus/          Modbus TCP / RTU connector 1.0.0 (reference connector)
-platform/                   Central platform: ingest, storage, configuration service, API, live-values screen
+platform/                   Central platform: ingest, storage, configuration service, API, live-values and configuration screens
+edge/                       Edge agent: starts a connector per configured source, tests configurations before saving
 tools/simulators/           Device simulators (Modbus TCP so far)
 tools/demo/                 One-command demo: simulated substation -> connector -> platform -> browser
 ```
 
-Still to come: alarms, configuration screens, `edge/` (agent), other connectors,
+Still to come: alarms, the container-based production edge agent, other connectors,
 `video/`, `deploy/`. The IEC 104 connector lives in its own GPL repository (`opcare-connector-iec104`).
 
 ## Run everything
@@ -21,7 +22,7 @@ Still to come: alarms, configuration screens, `edge/` (agent), other connectors,
 pip install starlette uvicorn jsonschema referencing pytest   # + playwright for the browser test
 python tools/demo/run_demo.py                                 # live demo; open the printed URL
 python docs/connector-spec/tools/validate_examples.py          # spec examples
-python -m pytest connectors platform -q                       # 23 tests
+python -m pytest connectors platform edge -q                  # 27 tests
 python tools/simulators/modbus_sim.py --port 5020              # a Modbus device to point a connector at
 ```
 

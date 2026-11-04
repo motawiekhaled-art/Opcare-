@@ -46,7 +46,7 @@ jobs:
         env:
           OPCARE_TEST_MQTT_URL: mqtt://localhost:1883
           OPCARE_TEST_PG_DSN: postgresql://postgres:postgres@localhost:5432/opcare_ci
-        run: python -m pytest connectors platform -v -rs
+        run: python -m pytest connectors platform edge -v -rs
       - name: Every database statement on PostgreSQL + TimescaleDB
         env:
           PGPASSWORD: postgres
@@ -71,7 +71,7 @@ jobs:
       - name: Tests
         run: |
           pip install starlette uvicorn jsonschema referencing pytest
-          python -m pytest connectors platform -v -rs -k "not gui"
+          python -m pytest connectors platform edge -v -rs -k "not gui"
       - name: Windows launcher self-test
         if: runner.os == 'Windows'
         shell: cmd

@@ -23,7 +23,8 @@ quality, source state and events react. `--no-faults` turns that off.
 | `daq_platform/services.py` | Ingest (batches grouped for fewer writes, sequence-gap detection, never stops on a bad message), configuration service (schema validation, revisions, tag ownership, retained publish, delete), admin relay, live hub |
 | `daq_platform/api.py` | Starlette HTTP API (FastAPI is built on Starlette, so it can move to FastAPI later unchanged in behaviour) and the Server-Sent-Events live stream |
 | `daq_platform/server.py` | Production entry point (environment variables documented in the file) |
-| `web/` | Live-values screen: sources with device states and Test connection, KPI strip, live table with quality badges and filters, history chart, events. Plain JavaScript, no build step |
+| `web/` | Live-values screen (sources, KPIs, live table, history chart, events) and configuration screens (`config.js`): sources list with enable/disable/delete, and the four-step wizard from the Opcare design — source type and protocol, connection and devices, tags (with Excel/CSV paste and Read), review with server-side check. Plain JavaScript, no build step |
+| `daq_platform/catalog.py` | Source types and protocols shown in the wizard, each marked Available (connector installed), In development (specified) or Planned |
 | `tools/check_postgres.py` | Runs the schema and every Store statement on a real PostgreSQL server |
 
 ## API (all JSON; `Authorization: Bearer <token>`)
@@ -36,6 +37,9 @@ quality, source state and events react. `--no-faults` turns that off.
 | `POST /api/sources` · `PUT /api/sources/{id}` | engineer | Create · update (validated against the connector schema; revision +1; pushed to the connector) |
 | `DELETE /api/sources/{id}` | admin | Delete (connector receives the empty retained configuration) |
 | `POST /api/sources/{id}/admin/{op}` | engineer (`ping`, `get_diagnostics`: viewer) | Relay `test_connection`, `read_now`, `browse`, … to the connector |
+| `GET /api/catalog` | viewer | Source types and protocols with availability; demo devices when running the demo |
+| `POST /api/sources-check?mode=create\|update&source_id=` | engineer | Validate exactly as saving would, without saving |
+| `POST /api/sources-test?mode=create\|update&source_id=` | engineer | Test the connection of a configuration that is not saved yet (the site's edge agent opens a short connection) |
 | `GET /api/tags?source=&q=` | viewer | Tags with latest value, quality and timestamps |
 | `GET /api/tags/{tag}/history?minutes=` (or `from`, `to`) | viewer | Stored history |
 | `GET /api/events?limit=&since=` | viewer | Events |
@@ -66,6 +70,5 @@ with no script errors.
 - **Starlette instead of FastAPI** for this slice, because FastAPI could not be installed where it was built.
   Starlette is the framework FastAPI is built on, so moving later is mechanical.
 - **Not done yet:** LDAP/AD login and multi-factor login (tokens for now), HTTPS termination (use the site's
-  reverse proxy), threshold alarms and e-mail, OPC UA server and MQTT northbound, CSV export, the configuration
-  screens from the Opcare design (sources are created through the API for now), TimescaleDB tested on a real
-  TimescaleDB server, the `PahoBus` against a real Mosquitto.
+  reverse proxy), threshold alarms and e-mail, OPC UA server and MQTT northbound, CSV export, configuration forms
+  for protocols other than Modbus (they appear once their connectors exist).

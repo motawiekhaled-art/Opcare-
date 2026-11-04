@@ -5,8 +5,11 @@
 
 Everything runs in one process: the Modbus simulator (real TCP), the real Modbus connector inside the real
 SDK runtime, the platform services, SQLite storage and the web API/GUI. The in-memory bus stands in for
-Mosquitto. With --faults (default on) meter 2 drops off the network every 90 s for 20 s, to show quality,
-state and event handling.
+Mosquitto, and the edge agent starts a connector for every configured source. Meter 2 of the substation drops
+off the network every 90 s for 20 s (--no-faults turns this off), to show quality, state and event handling.
+
+A second simulated device, "Pump Station West", is NOT configured at start: add it yourself on the
+Sources > New source screen (the screen offers its address and tags) to try the configuration flow.
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-for p in ("platform", "connectors/sdk-python", "connectors/modbus", "tools/simulators"):
+for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
@@ -34,12 +37,42 @@ from daq_platform.api import create_app  # noqa: E402
 from daq_platform.bus import InMemoryBus  # noqa: E402
 from daq_platform.services import Platform  # noqa: E402
 from daq_platform.store import Store  # noqa: E402
+from edge_agent import LocalAgent  # noqa: E402
 from modbus_connector import ModbusConnector  # noqa: E402
 from modbus_sim import ModbusSimulator  # noqa: E402
-from opcare_connector_sdk import Env, JsonLog, Runtime, SchemaValidator  # noqa: E402
+from opcare_connector_sdk import SchemaValidator  # noqa: E402
 from opcare_connector_sdk.testing import find_schemas  # noqa: E402
 
 SITE, SOURCE = "ss-giza-220kv", "modbus-mcc-01"
+
+
+PUMP_TAGS = [   # what the "Pump Station West" simulator offers; shown on the configuration screen
+    {"name": "flow", "address": {"table": "holding_register", "address": 0, "encoding": "float32"}, "data_type": "float", "unit": "m3/h"},
+    {"name": "discharge-pressure", "address": {"table": "holding_register", "address": 2, "encoding": "float32"}, "data_type": "float", "unit": "bar"},
+    {"name": "reservoir-level", "address": {"table": "holding_register", "address": 4, "encoding": "uint16"}, "data_type": "float", "unit": "m",
+     "scaling": {"gain": 0.01, "offset": 0}},
+    {"name": "water-temp", "address": {"table": "holding_register", "address": 5, "encoding": "int16"}, "data_type": "float", "unit": "degC",
+     "scaling": {"gain": 0.1, "offset": 0}},
+    {"name": "pump-1-running", "address": {"table": "coil", "address": 0, "encoding": "bool"}, "data_type": "bool"},
+    {"name": "pump-2-running", "address": {"table": "coil", "address": 1, "encoding": "bool"}, "data_type": "bool"},
+    {"name": "run-hours", "address": {"table": "holding_register", "address": 10, "encoding": "uint32"}, "data_type": "int", "unit": "h"},
+]
+
+
+async def drive_pump_station(sim: ModbusSimulator) -> None:
+    hours, t0 = 18_240, time.time()
+    while True:
+        t = time.time() - t0
+        p2 = (t // 120) % 2 == 1                        # second pump joins every other two minutes
+        flow = (310 if p2 else 165) + 12 * math.sin(t / 15) + random.uniform(-2, 2)
+        sim.set_value(1, "holding_register", 0, ">f", flow)
+        sim.set_value(1, "holding_register", 2, ">f", 4.2 + (0.6 if p2 else 0) + random.uniform(-0.05, 0.05))
+        sim.set_regs(1, "holding_register", 4, [round((6.5 - 0.8 * math.sin(t / 300)) * 100), round((24 + math.sin(t / 200)) * 10)])
+        sim.set_bit(1, "coil", 0, True)
+        sim.set_bit(1, "coil", 1, p2)
+        hours += 1 if random.random() < 0.01 else 0
+        sim.set_value(1, "holding_register", 10, ">I", hours)
+        await asyncio.sleep(1)
 
 
 def pick_port(host: str, wanted: int) -> int:
@@ -144,7 +177,8 @@ async def self_test(base: str, token: str, seconds: int) -> bool:
         except OSError:
             continue
         good = [t for t in tags if t["q"] == 192]
-        if tags and len(good) == len(tags) and sources and sources[0]["state"] == "running":
+        mcc = [s for s in sources if s["source_id"] == SOURCE]
+        if tags and len(good) == len(tags) and mcc and mcc[0]["state"] == "running":
             print(f"  SELF-TEST PASS: {len(good)} live values with good quality, source running", flush=True)
             return True
     print(f"  SELF-TEST FAIL: no complete set of good values within {seconds} s", flush=True)
@@ -173,19 +207,19 @@ async def main() -> int:
     sim_task = asyncio.create_task(drive_simulator(sim, not args.no_faults))
     await asyncio.sleep(0.2)
 
+    pump = ModbusSimulator(strict=True)
+    pump_port = await pump.start()
+    pump_task = asyncio.create_task(drive_pump_station(pump))
+    demo_info = {"site": "ps-west", "devices": [{"name": "Pump Station West", "device_id": "pump-plc", "host": "127.0.0.1",
+                                                 "port": pump_port, "unit_id": 1, "tags": PUMP_TAGS}]}
+
     bus = InMemoryBus()
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
-    platform = Platform(store, bus, SchemaValidator(find_schemas()))
+    validator = SchemaValidator(find_schemas())
+    platform = Platform(store, bus, validator, available_types={"modbus"})
     await platform.start()
-
-    (tmp / "mqtt_pw").write_text("demo")
-    env = Env({"OPCARE_SITE": SITE, "OPCARE_EDGE_ID": "edge-demo", "OPCARE_SOURCE_ID": SOURCE,
-               "OPCARE_MQTT_URL": "mqtt://in-memory", "OPCARE_MQTT_USERNAME": "demo",
-               "OPCARE_MQTT_PASSWORD_FILE": str(tmp / "mqtt_pw"), "OPCARE_SECRETS_DIR": str(tmp),
-               "OPCARE_LOG_LEVEL": "warn"})
-    runtime = Runtime(ModbusConnector(), env=env, client=bus.client(), validator=SchemaValidator(find_schemas()),
-                      log=JsonLog(SOURCE, "warn"))
-    conn_task = asyncio.create_task(runtime.main())
+    agent = LocalAgent(bus, {"modbus": ModbusConnector}, validator, edge_id="edge-demo")
+    await agent.start()
 
     existing = await store.run(store.get_source, SOURCE)
     cfg = demo_config(sim_port)
@@ -194,7 +228,7 @@ async def main() -> int:
     else:
         await platform.save_source(cfg, "demo-setup", create=True)
 
-    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens), host=args.host, port=args.port,
+    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info), host=args.host, port=args.port,
                                            log_level="warning", access_log=False))
     url = f"http://{args.host}:{args.port}/?token={token}"
 
@@ -216,10 +250,11 @@ async def main() -> int:
     try:
         await server.serve()
     finally:
-        runtime.request_stop()
-        await asyncio.gather(conn_task, return_exceptions=True)
+        await agent.stop()
         sim_task.cancel()
+        pump_task.cancel()
         await sim.stop()
+        await pump.stop()
         await platform.stop()
         store.close()
     return 0 if (result["ok"] or not args.self_test) else 1

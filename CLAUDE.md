@@ -8,6 +8,6 @@ Opcare Smart Services' Data Acquisition Platform (closed source). Owner: Khaled 
 - Read-only: connectors never write to field devices (spec section 12). New request types need a spec change.
 - Licences: no AGPL, BSL or non-commercial dependencies in this repository; GPL code (IEC 104 / lib60870)
   only in a separate repository that talks over MQTT.
-- Tests: `python -m pytest connectors platform -q`. CI (.github/workflows/ci.yml) adds a real Mosquitto
+- Tests: `python -m pytest connectors platform edge -q`. CI (.github/workflows/ci.yml) adds a real Mosquitto
   broker, PostgreSQL + TimescaleDB, Windows/macOS launcher self-tests and Docker builds. Keep CI green.
 - Work on a branch and open a pull request for Khaled to review; do not push to main directly.
