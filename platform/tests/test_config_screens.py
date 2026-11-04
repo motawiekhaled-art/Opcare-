@@ -128,7 +128,8 @@ async def _api():
         status, res = await s.call("POST", f"{s.base}/api/sources-test", "t-eng", pump_cfg(s.sim_port))
         assert status == 200 and res["result"]["devices"][0]["ok"]
         status, res = await s.call("POST", f"{s.base}/api/sources-test", "t-eng", pump_cfg(1))
-        assert status == 200 and res["result"]["devices"][0]["error"]["code"] == "CONN_REFUSED"
+        # nothing listens on port 1: Linux/macOS refuse at once, Windows retries until the timeout
+        assert status == 200 and res["result"]["devices"][0]["error"]["code"] in ("CONN_REFUSED", "CONN_TIMEOUT")
         bad_dev = pump_cfg(s.sim_port)
         bad_dev["points"][0]["address"]["device"] = "nope"
         status, res = await s.call("POST", f"{s.base}/api/sources-test", "t-eng", bad_dev)

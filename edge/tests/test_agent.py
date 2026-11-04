@@ -82,7 +82,8 @@ async def _scenario():
         ok = await ask({"config": cfg(port, "new")})
         assert ok["ok"] and ok["result"]["devices"][0]["ok"]
         down = await ask({"config": cfg(1, "new")})
-        assert down["ok"] and down["result"]["devices"][0]["error"]["code"] == "CONN_REFUSED"
+        # nothing listens on port 1: Linux/macOS refuse at once, Windows retries until the timeout
+        assert down["ok"] and down["result"]["devices"][0]["error"]["code"] in ("CONN_REFUSED", "CONN_TIMEOUT")
         bad = cfg(port, "new")
         bad["points"][0]["address"]["device"] = "nope"
         invalid = await ask({"config": bad})
