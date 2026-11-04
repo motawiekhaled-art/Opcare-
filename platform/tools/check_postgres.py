@@ -33,8 +33,14 @@ class CaptureCursor:
 
 
 class CaptureConn:
+    """Stands in for a psycopg connection: records statements instead of sending them."""
+
+    class _Info:
+        transaction_status = 0      # IDLE, like psycopg's conn.info.transaction_status
+
     def __init__(self):
         self.log = []
+        self.info = self._Info()
 
     def cursor(self):
         return CaptureCursor(self.log)
