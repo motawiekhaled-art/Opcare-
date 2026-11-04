@@ -1,0 +1,41 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ss-giza-220kv",
+  "source_id": "camera-yard-cam07",
+  "type": "camera",
+  "name": "camera-yard-cam07",
+  "enabled": true,
+  "connection": {
+    "host": "10.60.0.57",
+    "onvif": true,
+    "onvif_port": 80,
+    "username": "opcare-view",
+    "password_ref": "cam07-password",
+    "rtsp_transport": "tcp"
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "ss-giza.yard.cam07.online",
+      "address": {
+        "metric": "online"
+      },
+      "data_type": "bool"
+    },
+    {
+      "tag_id": "ss-giza.yard.cam07.fps",
+      "address": {
+        "metric": "fps"
+      },
+      "data_type": "float",
+      "unit": "fps"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "spec": "1.0",
+  "id": "01JBX3Q7K2M8V5T9N4R6C1D0EF",
+  "src": "modbus-mcc-01",
+  "type": "conn.lost",
+  "severity": "medium",
+  "ts": "2026-11-03T17:55:02.118Z",
+  "message": "Device meter-04 unreachable",
+  "device": "meter-04",
+  "attrs": {
+    "error": "CONN_TIMEOUT"
+  }
+}

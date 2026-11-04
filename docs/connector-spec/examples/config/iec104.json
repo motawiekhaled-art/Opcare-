@@ -1,0 +1,64 @@
+{
+  "spec": "1.0",
+  "revision": 5,
+  "site": "ss-giza-220kv",
+  "source_id": "iec104-rtu-main",
+  "type": "iec104",
+  "name": "iec104-rtu-main",
+  "enabled": true,
+  "connection": {
+    "hosts": [
+      {
+        "host": "10.20.0.10",
+        "port": 2404
+      },
+      {
+        "host": "10.20.0.11",
+        "port": 2404
+      }
+    ],
+    "common_addresses": [
+      1
+    ],
+    "k": 12,
+    "w": 8,
+    "t0_s": 30,
+    "t1_s": 15,
+    "t2_s": 10,
+    "t3_s": 20
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000,
+    "gi_on_connect": true,
+    "gi_period_s": 900
+  },
+  "points": [
+    {
+      "tag_id": "ss-giza.bay05.cb-pos",
+      "address": {
+        "ca": 1,
+        "ioa": 1001,
+        "type": "M_DP_TB_1"
+      },
+      "data_type": "enum"
+    },
+    {
+      "tag_id": "ss-giza.tr1.oil-temp",
+      "address": {
+        "ca": 1,
+        "ioa": 4001,
+        "type": "M_ME_NC_1"
+      },
+      "data_type": "float",
+      "unit": "degC",
+      "deadband": {
+        "mode": "abs",
+        "value": 0.2
+      }
+    }
+  ]
+}

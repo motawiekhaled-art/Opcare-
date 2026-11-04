@@ -1,0 +1,42 @@
+{
+  "spec": "1.0",
+  "src": "modbus-mcc-01",
+  "kind": "connector",
+  "type": "modbus",
+  "version": "1.0.0",
+  "boot": "6c1e3b9e-1f7e-4a8e-9a33-3f1c2d4b5a60",
+  "state": "degraded",
+  "since": "2026-11-03T17:55:02.118Z",
+  "ts": "2026-11-03T18:02:20.000Z",
+  "uptime_s": 3021,
+  "config_revision": 7,
+  "devices": [
+    {
+      "id": "meter-03",
+      "state": "connected",
+      "last_ok": "2026-11-03T18:02:19.870Z"
+    },
+    {
+      "id": "meter-04",
+      "state": "unreachable",
+      "last_ok": "2026-11-03T17:54:58.004Z",
+      "error": {
+        "code": "CONN_TIMEOUT",
+        "message": "No response from unit 4 within 3000 ms"
+      }
+    }
+  ],
+  "stats": {
+    "points": 120,
+    "values_total": 98213,
+    "values_per_s": 24.6,
+    "batches_total": 3001,
+    "dropped_total": 0,
+    "scan_overruns_total": 0
+  },
+  "last_error": {
+    "code": "CONN_TIMEOUT",
+    "message": "No response from unit 4 within 3000 ms",
+    "ts": "2026-11-03T17:55:02.118Z"
+  }
+}

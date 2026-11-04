@@ -1,0 +1,21 @@
+{
+  "spec": "1.0",
+  "id": "01JBX4A1B2C3D4E5F6G7H8J9KM",
+  "src": "video-yard-ai",
+  "type": "ppe.no_helmet",
+  "severity": "high",
+  "ts": "2026-11-03T18:05:41.120Z",
+  "message": "Person without helmet in transformer yard",
+  "camera": "ss-giza.yard.cam07",
+  "zone": "transformer-yard",
+  "confidence": 0.91,
+  "bbox": [
+    0.512,
+    0.461,
+    0.069,
+    0.272
+  ],
+  "track_id": 4471,
+  "snapshot": "clips/2026/11/03/01JBX4A1B2C3D4E5F6G7H8J9KM.jpg",
+  "clip": "clips/2026/11/03/01JBX4A1B2C3D4E5F6G7H8J9KM.mp4"
+}

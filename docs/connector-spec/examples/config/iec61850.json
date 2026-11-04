@@ -1,0 +1,56 @@
+{
+  "spec": "1.0",
+  "revision": 4,
+  "site": "ss-giza-220kv",
+  "source_id": "iec61850-relay-f21",
+  "type": "iec61850",
+  "name": "iec61850-relay-f21",
+  "enabled": true,
+  "connection": {
+    "host": "10.20.5.21",
+    "port": 102,
+    "ied_name": "F21",
+    "timeout_ms": 10000
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000,
+    "reports": [
+      {
+        "rcb_ref": "F21LD0/LLN0.BR.brcb01",
+        "buffered": true,
+        "trigger_options": [
+          "dchg",
+          "qchg",
+          "integrity",
+          "gi"
+        ],
+        "integrity_period_ms": 60000
+      }
+    ],
+    "poll_unreported": true,
+    "gi_on_connect": true
+  },
+  "points": [
+    {
+      "tag_id": "ss-giza.bay05.relay-f21.ia",
+      "address": {
+        "object_ref": "F21LD0/MMXU1.A.phsA.cVal.mag.f",
+        "fc": "MX"
+      },
+      "data_type": "float",
+      "unit": "A"
+    },
+    {
+      "tag_id": "ss-giza.bay05.relay-f21.cb-pos",
+      "address": {
+        "object_ref": "F21LD0/XCBR1.Pos.stVal",
+        "fc": "ST"
+      },
+      "data_type": "enum"
+    }
+  ]
+}

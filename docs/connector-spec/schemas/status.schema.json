@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/status.schema.json",
+  "title": "Status heartbeat and Last Will (topic opcare/v1/{site}/status/{source_id}, retained)",
+  "type": "object",
+  "properties": {
+    "spec": {
+      "$ref": "common.schema.json#/$defs/spec"
+    },
+    "src": {
+      "$ref": "common.schema.json#/$defs/sourceId"
+    },
+    "kind": {
+      "const": "connector"
+    },
+    "type": {
+      "$ref": "common.schema.json#/$defs/connectorType"
+    },
+    "version": {
+      "type": "string"
+    },
+    "boot": {
+      "$ref": "common.schema.json#/$defs/uuid"
+    },
+    "state": {
+      "enum": [
+        "starting",
+        "waiting_config",
+        "connecting",
+        "running",
+        "degraded",
+        "error",
+        "stopping",
+        "offline"
+      ]
+    },
+    "since": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "ts": {
+      "$ref": "common.schema.json#/$defs/timestamp"
+    },
+    "uptime_s": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "config_revision": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "connecting",
+              "connected",
+              "unreachable",
+              "disabled"
+            ]
+          },
+          "last_ok": {
+            "oneOf": [
+              {
+                "$ref": "common.schema.json#/$defs/timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "$ref": "common.schema.json#/$defs/error"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "values_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "values_per_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "batches_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dropped_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scan_overruns_total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "values_total",
+        "batches_total",
+        "dropped_total"
+      ],
+      "additionalProperties": false
+    },
+    "last_error": {
+      "oneOf": [
+        {
+          "$ref": "common.schema.json#/$defs/error"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "spec",
+    "src",
+    "kind",
+    "boot",
+    "state"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "state": {
+        "const": "offline"
+      }
+    }
+  },
+  "then": {
+    "maxProperties": 5
+  },
+  "else": {
+    "required": [
+      "type",
+      "version",
+      "since",
+      "ts",
+      "uptime_s",
+      "config_revision",
+      "devices",
+      "stats",
+      "last_error"
+    ]
+  }
+}

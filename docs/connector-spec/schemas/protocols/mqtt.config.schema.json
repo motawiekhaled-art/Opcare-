@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/protocols/mqtt.config.schema.json",
+  "title": "MQTT subscriber configuration",
+  "allOf": [
+    {
+      "$ref": "../config-envelope.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "mqtt"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "broker_url": {
+              "type": "string",
+              "pattern": "^mqtts?://"
+            },
+            "client_id": {
+              "type": "string"
+            },
+            "protocol_version": {
+              "enum": [
+                "5",
+                "3.1.1"
+              ],
+              "default": "5"
+            },
+            "auth": {
+              "enum": [
+                "anonymous",
+                "username",
+                "certificate"
+              ],
+              "default": "anonymous"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "client_cert_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "client_key_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "ca_cert_ref": {
+              "$ref": "../common.schema.json#/$defs/secretRef"
+            },
+            "insecure_skip_verify": {
+              "type": "boolean",
+              "default": false
+            },
+            "subscriptions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "topic_filter": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "qos": {
+                    "enum": [
+                      0,
+                      1
+                    ],
+                    "default": 1
+                  }
+                },
+                "required": [
+                  "topic_filter"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "broker_url",
+            "subscriptions"
+          ],
+          "additionalProperties": false
+        },
+        "acquisition": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/acquisitionCommon"
+            }
+          ],
+          "properties": {},
+          "unevaluatedProperties": false
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "enum": [
+                      "json",
+                      "raw",
+                      "sparkplug_b"
+                    ]
+                  },
+                  "topic": {
+                    "type": "string"
+                  },
+                  "value_pointer": {
+                    "type": "string",
+                    "pattern": "^(/[^/]*)*$"
+                  },
+                  "timestamp_pointer": {
+                    "type": "string",
+                    "pattern": "^(/[^/]*)*$"
+                  },
+                  "timestamp_format": {
+                    "enum": [
+                      "rfc3339",
+                      "epoch_ms",
+                      "epoch_s"
+                    ]
+                  },
+                  "group_id": {
+                    "type": "string"
+                  },
+                  "edge_node_id": {
+                    "type": "string"
+                  },
+                  "device_id": {
+                    "type": "string"
+                  },
+                  "metric": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "format"
+                ],
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "format": {
+                          "const": "sparkplug_b"
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "group_id",
+                        "edge_node_id",
+                        "metric"
+                      ]
+                    },
+                    "else": {
+                      "required": [
+                        "topic"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

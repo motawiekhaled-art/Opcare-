@@ -1,0 +1,9 @@
+{
+  "spec": "1.0",
+  "request_id": "a3f4b2c1-0d9e-4f8a-b7c6-d5e4f3a2b1c0",
+  "op": "test_connection",
+  "args": {},
+  "timeout_ms": 10000,
+  "requested_by": "eng.ahmed",
+  "ts": "2026-11-03T18:09:00.000Z"
+}

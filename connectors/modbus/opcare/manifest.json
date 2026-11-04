@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "modbus",
+  "name": "Modbus TCP / RTU",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["poll"], "browse": false, "read_now": true, "device_timestamps": false, "tls": false },
+  "limits": { "max_points": 5000, "min_scan_ms": 100 }
+}

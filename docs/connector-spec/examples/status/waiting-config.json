@@ -1,0 +1,20 @@
+{
+  "spec": "1.0",
+  "src": "modbus-mcc-01",
+  "kind": "connector",
+  "type": "modbus",
+  "version": "1.0.0",
+  "boot": "6c1e3b9e-1f7e-4a8e-9a33-3f1c2d4b5a60",
+  "state": "waiting_config",
+  "since": "2026-11-03T17:05:00.010Z",
+  "ts": "2026-11-03T17:05:00.010Z",
+  "uptime_s": 1,
+  "config_revision": null,
+  "devices": [],
+  "stats": {
+    "values_total": 0,
+    "batches_total": 0,
+    "dropped_total": 0
+  },
+  "last_error": null
+}

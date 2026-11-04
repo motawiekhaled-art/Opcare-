@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.opcaresystems.com/daq/connector/1.0/protocols/iec104.config.schema.json",
+  "title": "IEC 60870-5-104 master configuration",
+  "allOf": [
+    {
+      "$ref": "../config-envelope.schema.json"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "iec104"
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "hosts": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "$ref": "../common.schema.json#/$defs/host"
+                  },
+                  "port": {
+                    "$ref": "../common.schema.json#/$defs/port",
+                    "default": 2404
+                  }
+                },
+                "required": [
+                  "host"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "common_addresses": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65534
+              }
+            },
+            "originator_address": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255,
+              "default": 0
+            },
+            "k": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32767,
+              "default": 12
+            },
+            "w": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32767,
+              "default": 8
+            },
+            "t0_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255,
+              "default": 30
+            },
+            "t1_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255,
+              "default": 15
+            },
+            "t2_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255,
+              "default": 10
+            },
+            "t3_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 172800,
+              "default": 20
+            },
+            "device_time_zone": {
+              "type": "string",
+              "default": "UTC"
+            },
+            "tls": {
+              "$ref": "../common.schema.json#/$defs/tls"
+            }
+          },
+          "required": [
+            "hosts",
+            "common_addresses"
+          ],
+          "additionalProperties": false
+        },
+        "acquisition": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/acquisitionCommon"
+            }
+          ],
+          "properties": {
+            "gi_on_connect": {
+              "type": "boolean",
+              "default": true
+            },
+            "gi_period_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400,
+              "default": 900
+            },
+            "counter_interrogation_period_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400,
+              "default": 0
+            }
+          },
+          "unevaluatedProperties": false
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "address": {
+                "type": "object",
+                "properties": {
+                  "ca": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65534
+                  },
+                  "ioa": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 16777215
+                  },
+                  "type": {
+                    "enum": [
+                      "M_SP_NA_1",
+                      "M_SP_TB_1",
+                      "M_DP_NA_1",
+                      "M_DP_TB_1",
+                      "M_ST_NA_1",
+                      "M_ST_TB_1",
+                      "M_BO_NA_1",
+                      "M_BO_TB_1",
+                      "M_ME_NA_1",
+                      "M_ME_TD_1",
+                      "M_ME_NB_1",
+                      "M_ME_TE_1",
+                      "M_ME_NC_1",
+                      "M_ME_TF_1",
+                      "M_IT_NA_1",
+                      "M_IT_TB_1"
+                    ]
+                  }
+                },
+                "required": [
+                  "ca",
+                  "ioa"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

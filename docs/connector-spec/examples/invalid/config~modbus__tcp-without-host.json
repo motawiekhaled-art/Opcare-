@@ -1,0 +1,37 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ss-giza-220kv",
+  "source_id": "modbus-x",
+  "type": "modbus",
+  "name": "modbus-x",
+  "enabled": true,
+  "connection": {
+    "transport": "tcp",
+    "devices": [
+      {
+        "id": "d1",
+        "unit_id": 1
+      }
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "a.b",
+      "address": {
+        "device": "d1",
+        "table": "holding_register",
+        "address": 0,
+        "encoding": "uint16"
+      },
+      "data_type": "int"
+    }
+  ]
+}

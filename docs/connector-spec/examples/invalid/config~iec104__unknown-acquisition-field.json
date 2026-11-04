@@ -1,0 +1,37 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ss-giza-220kv",
+  "source_id": "iec104-x",
+  "type": "iec104",
+  "name": "iec104-x",
+  "enabled": true,
+  "connection": {
+    "hosts": [
+      {
+        "host": "h"
+      }
+    ],
+    "common_addresses": [
+      1
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000,
+    "clock_sync": true
+  },
+  "points": [
+    {
+      "tag_id": "a.b",
+      "address": {
+        "ca": 1,
+        "ioa": 1
+      },
+      "data_type": "bool"
+    }
+  ]
+}
