@@ -163,7 +163,7 @@ async def _browser():
         errors = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-        await pg.goto(f"{s.base}/?token=t-admin#/sources")
+        await pg.goto(f"{s.base}/?token=t-admin#sources")
         await pg.wait_for_selector("#sources-table tbody tr")
         assert await pg.locator("#view-live").is_hidden()
 
@@ -186,7 +186,7 @@ async def _browser():
         await pg.wait_for_function("[...document.querySelectorAll('#tag-rows tr:not([hidden]) .q-good')].length === 7", timeout=15000)
 
         # edit: read a value, change a unit, save revision 2
-        await pg.goto(f"{s.base}/#/sources/edit/pump-station-west")
+        await pg.goto(f"{s.base}/#edit-pump-station-west")
         await pg.wait_for_selector(".step2")
         await pg.click("#next")
         await pg.locator(".read-cell button").first.click()
@@ -200,7 +200,7 @@ async def _browser():
         assert cfg["revision"] == 2 and cfg["points"][0]["unit"] == "m3/hour" and cfg["acquisition"]["default_scan_ms"] == 1000
 
         # an invalid tag is shown against its row and blocks saving
-        await pg.goto(f"{s.base}/#/sources/edit/pump-station-west")
+        await pg.goto(f"{s.base}/#edit-pump-station-west")
         await pg.wait_for_selector(".step2")
         await pg.click("#next")
         await pg.fill("#p-tag-0", "Not A Valid Tag!")
@@ -224,7 +224,7 @@ async def _browser():
         assert s.agent.running == {}
 
         # a viewer sees the list but cannot change anything
-        await pg.goto(f"{s.base}/?token=t-view#/sources")
+        await pg.goto(f"{s.base}/?token=t-view#sources")
         await pg.wait_for_selector("#sources-table")
         assert await pg.locator("#new-source").is_hidden()
         # the only expected error: the browser logs the 422 answer to the deliberately invalid tag above

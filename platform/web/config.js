@@ -1,5 +1,6 @@
 /* Opcare DAQ – source configuration screens (Opcare GUI design: source type → protocol → connection → tags).
-   Views: #/sources (list), #/sources/new, #/sources/edit/<id>. Plain JavaScript, no build step. */
+   Views: #sources (list), #new-source, #edit-<source id>. Plain JavaScript, no build step.
+   Hashes are plain names (no "#/path") so the page also works where only simple fragments are kept. */
 (() => {
   "use strict";
 
@@ -70,8 +71,8 @@
 
   // ------------------------------------------------------------------ router
   function route() {
-    const hash = location.hash || "#/live";
-    const view = hash.startsWith("#/sources") ? (hash === "#/sources" ? "sources" : "editor") : "live";
+    const hash = location.hash || "#live";
+    const view = hash === "#sources" ? "sources" : (hash === "#new-source" || hash.startsWith("#edit-")) ? "editor" : "live";
     $("view-live").hidden = view !== "live"; $("view-sources").hidden = view !== "sources"; $("view-editor").hidden = view !== "editor";
     $("tab-live").classList.toggle("active", view === "live"); $("tab-sources").classList.toggle("active", view !== "live");
     $("tab-live").setAttribute("aria-current", view === "live" ? "page" : "false");
@@ -80,7 +81,7 @@
     if (!token()) return;
     if (view === "sources") renderList().catch((e) => toast(e.message, "error"));
     if (view === "editor") {
-      const m = hash.match(/^#\/sources\/edit\/(.+)$/);
+      const m = hash.match(/^#edit-(.+)$/);
       openEditor(m ? decodeURIComponent(m[1]) : null).catch((e) => toast(e.message, "error"));
     }
   }
@@ -109,7 +110,7 @@
         h("td", {class: "num"}, (cfg.connection?.devices || []).length), h("td", {class: "num"}, (cfg.points || []).length),
         h("td", {class: "num"}, s.revision, h("div", {class: "src-id"}, `by ${s.updated_by}`)), actions);
       if (can("engineer")) {
-        actions.append(h("a", {class: "btn", href: `#/sources/edit/${encodeURIComponent(s.source_id)}`}, "Edit"),
+        actions.append(h("a", {class: "btn", href: `#edit-${encodeURIComponent(s.source_id)}`}, "Edit"),
           h("button", {type: "button", class: "btn", onclick: () => toggleEnabled(s.source_id)}, s.enabled ? "Disable" : "Enable"));
       }
       if (can("admin")) actions.append(h("button", {type: "button", class: "btn danger-ghost", onclick: () => confirmDelete(row, s)}, "Delete"));
@@ -178,7 +179,7 @@
     }));
     const body = [null, step1, step2, step3, step4][st.step]();
     const footer = h("div", {class: "editor-foot"},
-      h("a", {class: "btn ghost", href: "#/sources"}, "Cancel"),
+      h("a", {class: "btn ghost", href: "#sources"}, "Cancel"),
       h("div", {class: "spacer"}),
       st.step > (st.mode === "edit" ? 2 : 1) ? h("button", {type: "button", class: "btn", onclick: () => go(st.step - 1)}, "Back") : null,
       st.step < 4 ? h("button", {type: "button", class: "btn primary", id: "next", disabled: st.step + 1 > maxReachable(), onclick: () => go(st.step + 1)},
@@ -474,12 +475,12 @@
     toast(`${r.data.name} saved as revision ${r.data.revision}. ${st.mode === "edit" ? "The connector applies it now." : "The connector is starting at the site."}`);
     reloadLive();
     const filter = $("filter"); if (filter) { filter.value = r.data.source_id; filter.dispatchEvent(new Event("input")); }
-    location.hash = "#/live";
+    location.hash = "#live";
   }
 
   // ------------------------------------------------------------------ start
   window.addEventListener("load", () => { route(); });
   // after signing in, app.js stores the token; render the current configuration view then
-  const obs = new MutationObserver(() => { if (!$("login").hidden) return; if (location.hash.startsWith("#/sources")) route(); });
+  const obs = new MutationObserver(() => { if (!$("login").hidden) return; if (location.hash && location.hash !== "#live") route(); });
   obs.observe($("login"), {attributes: true, attributeFilter: ["hidden"]});
 })();
