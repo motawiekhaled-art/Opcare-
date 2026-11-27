@@ -27,6 +27,12 @@ SNMP_DEVICES = ["Network switches and routers (IF-MIB: port status, traffic, err
                 "Firewalls and wireless controllers", "Servers and storage (HOST-RESOURCES-MIB: CPU, memory, disks)",
                 "UPSs (UPS-MIB, RFC 1628: battery, load, on-battery alarms)", "PDUs, cooling units and environmental monitors",
                 "Industrial Ethernet switches and gateways (Moxa, Hirschmann, Siemens SCALANCE)", "Printers and IP phones"]
+MQTT_DEVICES = ["IoT gateways and edge computers (Node-RED, AWS / Azure IoT edge, Teltonika, Moxa)",
+                "Smart water, gas and electricity meters through LoRaWAN / NB-IoT network servers (ChirpStack, TTN)",
+                "Solar inverters, battery systems and EV chargers with MQTT gateways",
+                "Sparkplug B edge nodes (Ignition Edge, Cirrus Link, HiveMQ Edge, Opto 22 groov)",
+                "Wireless sensors (temperature, vibration, pressure) and building IoT platforms"]
+MQTT = P("MQTT / Sparkplug B", "ISO/IEC 20922, OASIS MQTT 5.0, Eclipse Sparkplug 3.0", "mqtt", {}, 1883, MQTT_DEVICES)
 SNMP_V2C = P("SNMP v1 / v2c", "RFC 1157, RFC 3416 (community)", "snmp", {"version": "2c"}, 161, SNMP_DEVICES)
 SNMP_V3 = P("SNMPv3 (secure)", "RFC 3414 USM, RFC 3826 AES, RFC 7860", "snmp", {"version": "3"}, 161, SNMP_DEVICES)
 
@@ -40,6 +46,7 @@ CATALOG = [
                    P("DNP3", "IEEE 1815", "dnp3", port=20000),
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),
                    P("Modbus RTU", "Modbus over Serial Line v1.02", "modbus", {"transport": "rtu"}),
+                   MQTT,
                    P("UDP telemetry", "RFC 768 (NMEA 0183, CSV, JSON, binary)", "udp", {}, 5514,
                      ["Power-quality analysers and meters with UDP push", "Inverters and battery systems",
                       "Weather stations at solar and wind sites", "GNSS time and position receivers"]),
@@ -51,6 +58,9 @@ CATALOG = [
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),
                    P("Modbus RTU", "Modbus over Serial Line v1.02", "modbus", {"transport": "rtu"}),
                    P("UDP telegrams", "RFC 768 (PLC send / receive)", "udp", {}, 5514, UDP_PLC),
+                   P("MQTT / Sparkplug B", "OASIS MQTT 5.0, Eclipse Sparkplug 3.0", "mqtt", {}, 1883,
+                     ["Sparkplug B edge nodes and SCADA (Ignition, Inductive Automation)", "PLC and drive gateways publishing MQTT",
+                      "Unified Namespace (UNS) brokers in manufacturing"]),
                    P("EtherNet/IP", "IEC 61158 / 61784 (CIP)"), P("PROFINET", "IEC 61158 / 61784")]},
     {"id": "cam", "name": "Video & Cameras", "short": "IP, PTZ, thermal cameras",
      "description": "IP and thermal cameras and NVRs, for live video and AI video analytics.",
@@ -61,7 +71,7 @@ CATALOG = [
     {"id": "iot", "name": "IoT Sensors & Gateways", "short": "Edge devices, smart meters",
      "description": "Sensors, smart meters and gateways that publish telemetry over lightweight messaging.",
      "standards": ["ISO/IEC 20922 (MQTT)", "Sparkplug B", "RFC 7252 (CoAP)"],
-     "protocols": [P("MQTT / Sparkplug B", "ISO/IEC 20922, OASIS MQTT 5.0", "mqtt", port=1883),
+     "protocols": [MQTT,
                    P("UDP datagrams", "RFC 768 (NMEA 0183, CSV, JSON, binary)", "udp", {}, 5514, UDP_TELEMETRY),
                    P("CoAP", "RFC 7252"), P("LwM2M", "OMA LwM2M 1.2"), P("AMQP", "ISO/IEC 19464")]},
     {"id": "it", "name": "IT & Network", "short": "Switches, servers, UPS, firewalls",

@@ -135,12 +135,14 @@ jobs:
         run: docker build -f connectors/udp/Dockerfile -t opcare/connector-udp:ci .
       - name: SNMP connector image
         run: docker build -f connectors/snmp/Dockerfile -t opcare/connector-snmp:ci .
+      - name: MQTT connector image
+        run: docker build -f connectors/mqtt/Dockerfile -t opcare/connector-mqtt:ci .
       - name: Platform image
         run: docker build -f platform/Dockerfile -t opcare/daq-platform:ci .
       - name: "Connector image refuses to start without its environment (spec: exit code 2)"
         run: |
           set +e
-          for c in modbus udp snmp; do
+          for c in modbus udp snmp mqtt; do
             docker run --rm --read-only "opcare/connector-$c:ci"
             code=$?
             echo "$c exit code $code"

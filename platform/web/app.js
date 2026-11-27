@@ -25,24 +25,74 @@
   }
   async function api(path, opts = {}) {
     const res = await fetch(path, {...opts, headers: {"Authorization": `Bearer ${token}`, "Content-Type": "application/json", ...(opts.headers || {})}});
-    if (res.status === 401) { showLogin(); throw new Error("unauthorized"); }
+    if (res.status === 401) { showLogin("Your session has ended. Please sign in again."); throw new Error("unauthorized"); }
     const body = res.status === 204 ? null : await res.json();
     if (!res.ok && res.status !== 502) throw Object.assign(new Error(body?.error?.message || res.statusText), {body});
     return body;
   }
-  function showLogin(failed) {
-    $("login").hidden = false; $("login-error").hidden = !failed; $("token").focus();
-    if (!failed) fetch("/api/health").then((r) => r.json()).then((h) => {   // demo only: offer the demo token
-      if (h.login_hint && !$("token").value) { $("token").value = h.login_hint; $("login-hint").hidden = false; }
+  function showLogin(message) {
+    if (es) { es.close(); es = null; }
+    $("login").hidden = false;
+    $("login-error").hidden = !message; $("login-error").textContent = message || "";
+    $("login-pass").value = "";
+    ($("login-user").value ? $("login-pass") : $("login-user")).focus();
+    fetch("/api/health").then((r) => r.json()).then((h) => {        // demo only: show the demo user
+      const hint = h.login_hint;
+      if (hint && typeof hint === "object") {
+        $("login-hint").textContent = `Demo: user ${hint.username}, password ${hint.password}`;
+        $("login-hint").hidden = false;
+        if (!$("login-user").value) { $("login-user").value = hint.username; $("login-pass").value = hint.password; }
+      }
     }).catch(() => {});
   }
   $("login-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    token = $("token").value.trim();
-    try { const me = await api("/api/me"); try { sessionStorage.setItem("opcare-token", token); } catch (e) {} $("login").hidden = true; start(me); }
-    catch (e) { showLogin(true); }
+    $("login-btn").disabled = true;
+    try {
+      const res = await fetch("/api/login", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({username: $("login-user").value.trim(), password: $("login-pass").value})});
+      const body = await res.json().catch(() => null);
+      if (!res.ok) { showLogin(body?.error?.message ? cap(body.error.message) + "." : "Sign-in failed."); return; }
+      token = body.token;
+      try { sessionStorage.setItem("opcare-token", token); } catch (e) {}
+      $("login").hidden = true;
+      start(body);
+    } catch (e) { showLogin("The platform cannot be reached."); }
+    finally { $("login-btn").disabled = false; }
   });
-  $("signout").addEventListener("click", () => { try { sessionStorage.removeItem("opcare-token"); } catch (e) {} if (es) es.close(); location.reload(); });
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  $("signout").addEventListener("click", async () => {      // back to the sign-in screen, without reloading the page
+    try { await fetch("/api/logout", {method: "POST", headers: {"Authorization": `Bearer ${token}`}}); } catch (e) {}
+    try { sessionStorage.removeItem("opcare-token"); } catch (e) {}
+    if (es) { es.close(); es = null; }
+    token = null; window.opcareMe = null;
+    $("tab-admin").hidden = true; $("user").textContent = ""; $("view-admin").replaceChildren();
+    if (location.hash && location.hash !== "#live") location.hash = "#live";
+    $("login-user").value = "";
+    showLogin();
+  });
+
+  // ------------------------------------------------------------------ own password
+  let afterPassword = null;
+  function openPassword(forced) {
+    $("pw-modal").hidden = false; $("pw-error").hidden = true;
+    ["pw-current", "pw-new", "pw-confirm"].forEach((id) => { $(id).value = ""; });
+    $("pw-why").hidden = !forced; $("pw-cancel").hidden = forced;
+    $("pw-current").focus();
+  }
+  $("pw-cancel").addEventListener("click", () => { $("pw-modal").hidden = true; });
+  $("pw-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const fail = (t) => { $("pw-error").textContent = t; $("pw-error").hidden = false; };
+    if ($("pw-new").value !== $("pw-confirm").value) return fail("The two new passwords are not the same.");
+    const res = await fetch("/api/me/password", {method: "POST", headers: {"Authorization": `Bearer ${token}`, "Content-Type": "application/json"},
+      body: JSON.stringify({current: $("pw-current").value, new: $("pw-new").value})});
+    if (res.status !== 204) { const b = await res.json().catch(() => null); return fail(cap(b?.error?.message || "The password was not changed") + "."); }
+    $("pw-modal").hidden = true;
+    const t = $("toast"); t.textContent = "Your password was changed."; t.dataset.kind = "ok"; t.hidden = false; setTimeout(() => { t.hidden = true; }, 4000);
+    if (afterPassword) { const go = afterPassword; afterPassword = null; go(); }
+  });
+  $("user").addEventListener("click", () => { if (window.opcareMe?.kind === "session") openPassword(false); });
 
   // ------------------------------------------------------------------ sources
   function renderSource(s) {
@@ -248,10 +298,15 @@
   }, 1000);
 
   async function start(me) {
-    $("user").textContent = `${me.user} · ${me.role}`;
+    window.opcareMe = me;
+    $("user").textContent = `${me.name || me.user} · ${me.role}`;
+    $("user").title = me.kind === "session" ? "Change my password" : "Signed in with an access token";
+    $("tab-admin").hidden = me.role !== "admin";
+    window.dispatchEvent(new CustomEvent("opcare:signed-in", {detail: me}));
+    if (me.must_change_password) { afterPassword = () => start({...me, must_change_password: false}); openPassword(true); return; }
     await loadEvents();
     connectLive();            // sources and tags load on the stream's hello, then live updates apply
   }
   initToken();
-  if (!token) showLogin(); else api("/api/me").then(start).catch(() => showLogin(true));
+  if (!token) showLogin(); else api("/api/me").then(start).catch(() => showLogin());
 })();

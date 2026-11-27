@@ -14,6 +14,8 @@ More simulated devices are NOT configured at start: add them yourself on the Sou
   - "Server room switch" and "UPS"  SNMP agents, v2c community "public" or SNMPv3 (IT & Network > SNMP);
                                     the switch also sends linkDown/linkUp traps to UDP port 10162
   - "GNSS and weather station"     UDP telegrams: NMEA 0183, JSON and syslog (IoT Sensors > UDP datagrams)
+  - "Water meters and solar plant"  an MQTT broker with smart water meters (JSON) and a Sparkplug B edge node
+                                    with three inverters (IoT Sensors or Energy > MQTT / Sparkplug B)
 """
 from __future__ import annotations
 
@@ -32,12 +34,13 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp",
+for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp", "connectors/mqtt",
           "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
 
+from daq_platform.accounts import Accounts  # noqa: E402
 from daq_platform.api import create_app  # noqa: E402
 from daq_platform.bus import InMemoryBus  # noqa: E402
 from daq_platform.services import Platform  # noqa: E402
@@ -45,6 +48,9 @@ from daq_platform.store import Store  # noqa: E402
 from edge_agent import LocalAgent  # noqa: E402
 from modbus_connector import ModbusConnector  # noqa: E402
 from modbus_sim import ModbusSimulator  # noqa: E402
+from mqtt_broker import MqttBroker  # noqa: E402
+from mqtt_connector import MqttConnector  # noqa: E402
+from mqtt_connector import sparkplug as SP  # noqa: E402
 from snmp_connector import SnmpConnector  # noqa: E402
 from snmp_connector.ber import INTEGER, OCTET_STRING, VarBind  # noqa: E402
 from snmp_connector.messages import UsmUser  # noqa: E402
@@ -54,6 +60,7 @@ from opcare_connector_sdk import SchemaValidator  # noqa: E402
 from opcare_connector_sdk.testing import find_schemas  # noqa: E402
 
 SITE, SOURCE = "ss-giza-220kv", "modbus-mcc-01"
+DEMO_ADMIN_PASSWORD = "Opcare@2026"
 
 
 PUMP_TAGS = [   # what the "Pump Station West" simulator offers; shown on the configuration screen
@@ -140,6 +147,86 @@ async def drive_udp_station(port: int) -> None:
             await asyncio.sleep(1)
     finally:
         sock.close()
+
+
+class SolarEdgeNode:
+    """Sparkplug B edge node 'solar/gw1' with inverters inv-1..inv-3; inv-3 drops off for 20 s every 2 minutes."""
+    METRICS = {"Plant/Power": (1, SP.FLOAT), "Plant/Energy": (2, SP.DOUBLE), "Plant/Irradiance": (3, SP.FLOAT)}
+    INV = {"Power": (0, SP.FLOAT), "Temperature": (1, SP.FLOAT), "Running": (2, SP.BOOLEAN), "Faults": (3, SP.INT32)}
+
+    def __init__(self, broker: MqttBroker):
+        self.b, self.seq, self.t0, self.energy, self.inv3_up = broker, 0, time.time(), 18_420.0, True
+
+    def _seq(self) -> int:
+        self.seq = (self.seq + 1) % 256
+        return self.seq
+
+    def values(self):
+        t = time.time() - self.t0
+        sun = max(0.0, math.sin(t / 600)) * 0.3 + 0.7
+        inv = {i: 280 * sun * (1 + 0.03 * math.sin(t / 30 + i)) + random.uniform(-3, 3) for i in (1, 2, 3)}
+        if not self.inv3_up:
+            inv[3] = 0.0
+        return t, sun, inv
+
+    def births(self) -> None:
+        t, sun, inv = self.values()
+        now = int(time.time() * 1000)
+        self.b.publish("spBv1.0/solar/NBIRTH/gw1", SP.encode([
+            SP.encode_metric("bdSeq", SP.UINT64, 0),
+            SP.encode_metric("Plant/Power", SP.FLOAT, sum(inv.values()), alias=1),
+            SP.encode_metric("Plant/Energy", SP.DOUBLE, self.energy, alias=2),
+            SP.encode_metric("Plant/Irradiance", SP.FLOAT, 950 * sun, alias=3)], timestamp=now, seq=0))
+        self.seq = 0
+        for i in (1, 2, 3):
+            if i == 3 and not self.inv3_up:
+                continue
+            self.b.publish(f"spBv1.0/solar/DBIRTH/gw1/inv-{i}", SP.encode([
+                SP.encode_metric("Power", SP.FLOAT, inv[i], alias=10 * i), SP.encode_metric("Temperature", SP.FLOAT, 38 + i, alias=10 * i + 1),
+                SP.encode_metric("Running", SP.BOOLEAN, True, alias=10 * i + 2), SP.encode_metric("Faults", SP.INT32, 0, alias=10 * i + 3)],
+                timestamp=now, seq=self._seq()))
+
+    async def run(self) -> None:
+        self.births()
+        while True:
+            await asyncio.sleep(2)
+            t, sun, inv = self.values()
+            now = int(time.time() * 1000)
+            self.energy += sum(inv.values()) * 2 / 3600
+            up = not (100 <= t % 120 < 120)
+            if up != self.inv3_up:
+                self.inv3_up = up
+                if up:
+                    self.births()
+                else:
+                    self.b.publish("spBv1.0/solar/DDEATH/gw1/inv-3", SP.encode([], timestamp=now, seq=self._seq()))
+            self.b.publish("spBv1.0/solar/NDATA/gw1", SP.encode([
+                SP.encode_metric(None, SP.FLOAT, sum(inv.values()), alias=1), SP.encode_metric(None, SP.DOUBLE, round(self.energy, 3), alias=2),
+                SP.encode_metric(None, SP.FLOAT, round(950 * sun, 1), alias=3)], timestamp=now, seq=self._seq()))
+            for i in (1, 2, 3):
+                if i == 3 and not self.inv3_up:
+                    continue
+                self.b.publish(f"spBv1.0/solar/DDATA/gw1/inv-{i}", SP.encode([
+                    SP.encode_metric(None, SP.FLOAT, round(inv[i], 2), alias=10 * i),
+                    SP.encode_metric(None, SP.FLOAT, round(38 + i + 6 * sun + random.uniform(-0.3, 0.3), 1), alias=10 * i + 1)],
+                    timestamp=now, seq=self._seq()))
+
+
+async def drive_water_meters(broker: MqttBroker) -> None:
+    """Smart water meters publishing JSON every 2 s on meters/<id>/telemetry (QoS 1), status retained."""
+    totals = {101: 15_230.0, 102: 8_901.5, 103: 22_014.2, 104: 3_405.9}
+    for m in totals:
+        broker.publish(f"meters/{m}/status", "online", retain=True)
+    t0 = time.time()
+    while True:
+        t = time.time() - t0
+        for m in totals:
+            flow = max(0.0, (6 + m % 7) * (1 + 0.4 * math.sin(t / 45 + m)) + random.uniform(-0.2, 0.2))
+            totals[m] += flow * 2 / 3600
+            broker.publish(f"meters/{m}/telemetry", json.dumps({
+                "id": m, "ts": int(time.time() * 1000), "flow": round(flow, 2), "total": round(totals[m], 3),
+                "pressure": round(3.1 + 0.2 * math.sin(t / 60 + m), 2), "battery": 92 - m % 5, "valve": "open"}), qos=1)
+        await asyncio.sleep(2)
 
 
 def free_udp(host: str, wanted: int) -> int:
@@ -271,7 +358,9 @@ async def main() -> int:
     ap.add_argument("--no-faults", action="store_true", help="do not take meter 2 offline periodically")
     ap.add_argument("--open", action="store_true", help="open the web browser when the demo is ready")
     ap.add_argument("--login-hint", action="store_true",
-                    help="pre-fill the admin token on the sign-in screen (demo links such as GitHub Codespaces)")
+                    help="show the demo user name and password on the sign-in screen (demo links such as GitHub Codespaces)")
+    ap.add_argument("--admin-user", default="admin", help="first admin user created when the database has no users")
+    ap.add_argument("--admin-password", default=DEMO_ADMIN_PASSWORD, help="its password (change it after signing in)")
     ap.add_argument("--self-test", type=int, metavar="SECONDS", default=0,
                     help="check that live values arrive through the API, then exit (0 = pass); used by CI")
     args = ap.parse_args()
@@ -298,6 +387,11 @@ async def main() -> int:
     ups_mib(ups)
     switch_port, ups_port = await switch.start(), await ups.start()
     trap_task = asyncio.create_task(drive_switch_traps(switch))
+    broker = MqttBroker()
+    broker_port = await broker.start("127.0.0.1", pick_port("127.0.0.1", 18830))
+    solar = SolarEdgeNode(broker)
+    broker.on_subscribe = lambda f: solar.births() if f.startswith(("spBv1.0", "#")) else None   # as on reconnect of a host
+    mqtt_tasks = [asyncio.create_task(solar.run()), asyncio.create_task(drive_water_meters(broker))]
     udp_port = free_udp("127.0.0.1", 5514)
     udp_task = asyncio.create_task(drive_udp_station(udp_port))
 
@@ -307,6 +401,8 @@ async def main() -> int:
         {"type": "snmp", "name": "Server room switch and UPS", "community": "public", "v3": SNMP_V3_DEMO, "trap_port": TRAP_PORT,
          "devices": [{"id": "server-room-sw", "host": "127.0.0.1", "port": switch_port, "name": "Server room switch"},
                      {"id": "ups-1", "host": "127.0.0.1", "port": ups_port, "name": "UPS 10 kVA"}]},
+        {"type": "mqtt", "name": "Water meters and solar plant (MQTT broker)", "broker_url": f"mqtt://127.0.0.1:{broker_port}",
+         "subscriptions": [{"topic_filter": "meters/+/telemetry", "qos": 1}, {"topic_filter": "spBv1.0/solar/#", "qos": 0}]},
         {"type": "udp", "name": "GNSS and weather station", "bind_port": udp_port,
          "senders": [{"id": "station", "host": "127.0.0.1", "name": "GNSS + weather station"}]}]}
 
@@ -314,9 +410,9 @@ async def main() -> int:
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
     validator = SchemaValidator(find_schemas())
     secrets_dir = tmp / "secrets"
-    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp"}, secrets_dir=secrets_dir)
+    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt"}, secrets_dir=secrets_dir)
     await platform.start()
-    agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector}, validator,
+    agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector, "mqtt": MqttConnector}, validator,
                        edge_id="edge-demo", secrets_dir=secrets_dir)
     await agent.start()
 
@@ -327,10 +423,12 @@ async def main() -> int:
     else:
         await platform.save_source(cfg, "demo-setup", create=True)
 
-    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info,
-                                                      login_hint=token if args.login_hint else None), host=args.host, port=args.port,
-                                           log_level="warning", access_log=False))
-    url = f"http://{args.host}:{args.port}/?token={token}"
+    accounts = Accounts(store)
+    await accounts.ensure_admin(args.admin_user, args.admin_password, "Khaled (administrator)")
+    hint = {"username": args.admin_user, "password": args.admin_password} if args.login_hint else None
+    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info, login_hint=hint, accounts=accounts),
+                                           host=args.host, port=args.port, log_level="warning", access_log=False))
+    url = f"http://{args.host}:{args.port}/"
 
     async def open_when_ready():
         while not server.started:
@@ -344,7 +442,8 @@ async def main() -> int:
 
     result = {"ok": False}
     opener = asyncio.create_task(open_when_ready())
-    print(f"\n  Opcare DAQ demo starting\n  Open:  http://{args.host}:{args.port}/?token={token}\n"
+    print(f"\n  Opcare DAQ demo starting\n  Open:  http://{args.host}:{args.port}/\n"
+          f"  Sign in: user '{args.admin_user}', password '{args.admin_password}' (Admin tab: add users)\n"
           f"  API:   curl -H 'Authorization: Bearer {token}' http://{args.host}:{args.port}/api/tags\n"
           f"  Stop:  Ctrl+C\n", flush=True)
     try:
@@ -354,6 +453,9 @@ async def main() -> int:
         sim_task.cancel()
         pump_task.cancel()
         trap_task.cancel()
+        for t in mqtt_tasks:
+            t.cancel()
+        await broker.stop()
         udp_task.cancel()
         switch.stop()
         ups.stop()

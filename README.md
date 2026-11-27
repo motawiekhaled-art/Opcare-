@@ -9,12 +9,13 @@ Layout follows Architecture document OSS-DAQ-ARC-001 section 13.1. Only the part
 docs/connector-spec/        Connector specification OSS-DAQ-CON-001: rulebook, schemas, AsyncAPI, examples
 connectors/sdk-python/      Python connector SDK (runtime, value pipeline, guard, test harness)
 connectors/modbus/          Modbus TCP / RTU connector 1.0.0 (reference connector)
+connectors/mqtt/            MQTT subscriber 1.0.0 (3.1.1 / 5.0, TLS): JSON, plain values and Sparkplug B from IoT and edge gateways
 connectors/udp/             UDP listener 1.0.0: NMEA 0183, CSV, JSON, binary telegrams and syslog pushed by devices
 connectors/snmp/            SNMP manager 1.0.0 (v1, v2c, v3): switches, servers, UPSs, firewalls; traps as events
 platform/                   Central platform: ingest, storage, configuration service, API, live-values and configuration screens
 edge/                       Edge agent: starts a connector per configured source, tests configurations before saving
-tools/simulators/           Device simulators (Modbus TCP, SNMP agent)
-tools/demo/                 One-command demo: simulated substation, pump station, switch + UPS, GNSS/weather station
+tools/simulators/           Device simulators (Modbus TCP, SNMP agent, MQTT broker)
+tools/demo/                 One-command demo: substation, pump station, switch + UPS, GNSS/weather station, water meters + solar plant (MQTT)
 ```
 
 Still to come: alarms, the container-based production edge agent, other connectors,
@@ -26,7 +27,7 @@ Click **Open in GitHub Codespaces** above, or share this link with anyone who ha
 `https://codespaces.new/motawiekhaled-art/Opcare-?quickstart=1`
 
 GitHub starts the demo in the cloud and opens it in a new tab (first start about 2 minutes, later starts
-faster). Sign in with the pre-filled demo token. Details: `.devcontainer/README.md`.
+faster). Sign in as `admin` / `Opcare@2026` (shown on the sign-in screen). Details: `.devcontainer/README.md`.
 
 ## Demo page (one HTML file, opens in Chrome)
 
@@ -34,6 +35,18 @@ faster). Sign in with the pre-filled demo token. Details: `.devcontainer/README.
 from Artifacts. Unzip it and double-click `opcare-demo.html`: the real screens run with a simulated
 substation and pump station, no server needed. Send the file to anyone who should try it.
 Build it locally with `python tools/demo/build_web_demo.py opcare-demo.html`.
+
+## Users and sign-in
+
+People sign in with a user name and password. Admins manage users in the **Admin** tab: add a user with a role
+(viewer, operator, engineer, admin) and a temporary password, change roles, reset passwords, disable or delete users,
+and read the audit log. A new user must choose their own password at first sign-in. Passwords are stored only as
+salted scrypt hashes; five wrong passwords lock a user name for 5 minutes; there is always at least one active admin.
+
+- Demo: user `admin`, password `Opcare@2026`.
+- Production (`python -m daq_platform.server`): the first admin is created on an empty database from
+  `OPCARE_ADMIN_USER` / `OPCARE_ADMIN_PASSWORD_FILE` (without a file a random password is written once to the log).
+- Machines and scripts can still use static API tokens (`OPCARE_API_TOKENS_FILE`).
 
 ## Run everything
 

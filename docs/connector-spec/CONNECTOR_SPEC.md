@@ -534,14 +534,16 @@ Each profile defines the `connection` object, the point `address` object, extra 
 
 For IoT devices that publish to a **client's** broker (not the Opcare local broker).
 
-**connection**: `{broker_url (mqtt:// or mqtts://), client_id?, protocol_version "5"|"3.1.1", auth "anonymous"|"username"|"certificate", username?, password_ref?, client_cert_ref?, client_key_ref?, ca_cert_ref?, subscriptions: [{topic_filter, qos (0|1)}]}`.
+**connection**: `{broker_url (mqtt:// or mqtts://), client_id?, protocol_version "5"|"3.1.1", auth "anonymous"|"username"|"certificate", username?, password_ref?, client_cert_ref?, client_key_ref?, ca_cert_ref?, insecure_skip_verify?, keepalive_s (60), subscriptions: [{topic_filter, qos (0|1)}]}`. Default ports 1883 (`mqtt://`) and 8883 (`mqtts://`). The client id defaults to `opcare-{source_id}`; test and browse connections add `-test` / `-browse` so they never take over the running session. Sessions are clean (no persistent session on the broker).
+
+**Devices**: one device, `broker`. When the broker connection is lost every point gets `q: 24` (rule 7.2.4); the connector reconnects with the backoff of section 13 and subscribes again.
 
 **address** — one of:
 
 - JSON/raw: `{topic, format: "json"|"raw", value_pointer?, timestamp_pointer?, timestamp_format?: "rfc3339"|"epoch_ms"|"epoch_s"}`. `value_pointer` and `timestamp_pointer` are RFC 6901 JSON Pointers (e.g. `/data/temp`). `raw` parses the payload as a number, `true`/`false` or text.
 - Sparkplug B: `{format: "sparkplug_b", group_id, edge_node_id, device_id?, metric}`.
 
-**Rules**: `topic` must match one of the configured `subscriptions`. A payload that cannot be parsed sets the point to `q: 0` with `f: ["PARSE_ERROR"]`. Sparkplug: NDEATH/DDEATH → all metrics of that node/device `q: 24`; `is_null` → `v: null, q: 0`; metric timestamps used as `ts`.
+**Rules**: `topic` must match one of the configured `subscriptions` (an address `topic` may itself contain `+`/`#` to read the same field from many topics into one tag). A payload that cannot be parsed sets the point to `q: 0` with `f: ["PARSE_ERROR"]`. Sparkplug: NDEATH/DDEATH → all metrics of that node/device `q: 24` with `f: ["DEATH"]`; `is_null` → `v: null, q: 0`; metric timestamps (else the payload timestamp) used as `ts`; metrics sent only by alias are resolved with the aliases of the last NBIRTH/DBIRTH — before a birth has been seen they are skipped and counted in diagnostics; DataSet, Template and Bytes metrics → `q: 4`, `f: ["UNSUPPORTED_TYPE"]`.
 
 **Browse**: subscribes to `path` (a topic filter, default the configured filters) for `listen_s` seconds (default 10, max 60) and returns topics seen with a sample payload (first 1 KiB) and, for Sparkplug, metric names and types.
 

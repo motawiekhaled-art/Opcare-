@@ -28,3 +28,10 @@ CREATE TABLE IF NOT EXISTS ingest_seq (
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts_ms INTEGER NOT NULL, username TEXT NOT NULL,
     action TEXT NOT NULL, target TEXT NOT NULL, detail TEXT);
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT, role TEXT NOT NULL, password_hash TEXT NOT NULL,
+    active INTEGER NOT NULL, must_change INTEGER NOT NULL, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL,
+    last_login_ms INTEGER);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, created_ms INTEGER NOT NULL, expires_ms INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (username);

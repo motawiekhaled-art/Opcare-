@@ -238,6 +238,7 @@ input.invalid { border-color: var(--bad); background: var(--bad-bg); }
 .toolbar .sep { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .toolbar select, .toolbar input { padding: 6px 8px; }
 label.check { display: inline-flex; gap: 6px; align-items: center; font-weight: 400; }
+label.check input[type=checkbox] { width: 16px; height: 16px; min-width: 16px; padding: 0; margin: 0; flex: none; }
 label.check.small { font-size: 12px; white-space: nowrap; }
 .small { font-size: 12px; }
 .browse { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--card); }
@@ -256,3 +257,37 @@ label.check.small { font-size: 12px; white-space: nowrap; }
 .summary dd { margin: 0; font-weight: 600; color: var(--ink); }
 .json { background: #0D1B2E; color: #DCE8F8; padding: 12px; border-radius: 8px; overflow: auto; max-height: 360px; font-size: 12px; }
 details summary { cursor: pointer; color: var(--blue); font-weight: 600; }
+
+/* sign in, account and admin */
+.login-screen { background: linear-gradient(135deg, #0A1F44 0%, #0B57B8 100%); }
+.login-screen .modal-box { max-width: 400px; padding: 32px; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }
+.login-screen .logo { height: 44px; align-self: flex-start; }
+.modal-box label { font-weight: 600; font-size: 13px; margin-bottom: -6px; }
+.modal-box h2 { margin: 0; }
+.row-end { display: flex; justify-content: flex-end; gap: 8px; }
+.user-btn { background: none; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px;
+  color: var(--muted); cursor: pointer; }
+.user-btn:hover { border-color: var(--line); color: var(--ink); }
+.admin-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.admin-grid .panel { padding: 16px 18px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.panel-head h2 { margin: 0; font-size: 17px; }
+.user-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 12px; align-items: end;
+  border: 1px dashed var(--blue-line); background: var(--blue-soft); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.user-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.user-form input, .user-form select { min-height: 36px; border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; font: inherit;
+  color: var(--text); background: #fff; }
+.user-form .actions { display: flex; gap: 8px; }
+.users td { vertical-align: middle; }
+.users .who b { display: block; }
+.users .who small { color: var(--muted); }
+.users td.actions { white-space: nowrap; text-align: right; }
+.users select { min-height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; font: inherit; background: #fff; }
+.chip.on { background: var(--good-bg); color: var(--good); }
+.chip.off { background: var(--grey-bg); color: var(--muted); }
+.chip.must { background: var(--unc-bg); color: var(--unc); }
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 12px; }
+.roles div { font-size: 12px; color: var(--muted); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; }
+.roles b { color: var(--ink); text-transform: capitalize; }
+.audit td { font-size: 13px; }
+.you { font-size: 11px; color: var(--blue); font-weight: 600; margin-left: 6px; }

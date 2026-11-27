@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "mqtt",
+  "name": "MQTT subscriber (JSON, plain values, Sparkplug B)",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["subscribe"], "browse": true, "read_now": false, "device_timestamps": true, "tls": true },
+  "limits": { "max_points": 20000, "min_scan_ms": 100 }
+}
