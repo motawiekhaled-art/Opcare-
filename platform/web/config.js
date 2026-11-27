@@ -530,7 +530,7 @@
       if (d.trap_port && !conn.traps) conn.traps = {bind_host: "127.0.0.1", bind_port: d.trap_port};
       if (conn.version === "3" && d.v3) {
         conn.v3 = {username: d.v3.username, security_level: "authPriv", auth_protocol: d.v3.auth_protocol, priv_protocol: "AES"};
-        st.secrets.auth = d.v3.auth_password; st.secrets.priv = d.v3.priv_password;
+        st.secrets.auth = d.v3.auth_password; st.secrets.priv = d.v3.priv_password; st.secrets["trap-community"] = d.community;
       } else st.secrets.community = d.community;
     }
     st.demoDevice = d;
@@ -560,11 +560,11 @@
     }
     return null;
   }
-  function secretField(label, kind, obj, key, help) {
+  function secretField(label, kind, obj, key, help, optional = false) {
     if (!catalog.secrets) return field(`${label} (secret file name)`, inp(`f-${kind}`, obj[key], (v) => { obj[key] = v; }, {placeholder: "file name in the edge node's secrets folder"}), help);
     const saved = obj[key] && storedSecrets.includes(obj[key]);
     return field(label, h("input", {id: `f-${kind}`, type: "password", autocomplete: "new-password", value: st.secrets[kind] || "",
-      placeholder: saved ? "•••••• saved (type to replace)" : "required",
+      placeholder: saved ? "•••••• saved (type to replace)" : optional ? "optional" : "required",
       oninput: (e) => { st.secrets[kind] = e.target.value; rerenderKeepFocus(); }}), help);
   }
 
@@ -629,7 +629,8 @@
       field("Receive traps", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-traps", checked: Boolean(traps),
         onchange: (e) => { if (e.target.checked) conn.traps = {bind_host: "0.0.0.0", bind_port: 10162}; else delete conn.traps; render(); }}), " Alarms the devices send (link down, on battery…) become events")),
       traps ? field("Trap UDP port", inp("f-trap-port", traps.bind_port, (v) => { traps.bind_port = v; }, {type: "number", min: 1, max: 65535}), "Point the devices' trap destination here (the edge node maps 162 to it).") : null,
-      traps && conn.version === "3" ? secretField("Trap community (v1/v2c traps)", "trap-community", traps, "community_ref") : null));
+      traps && conn.version === "3" ? secretField("Trap community (v1/v2c traps)", "trap-community", traps, "community_ref",
+        "Devices often still send v1/v2c traps; leave empty to ignore them.", true) : null));
     return [access, devices, timing];
   }
 
