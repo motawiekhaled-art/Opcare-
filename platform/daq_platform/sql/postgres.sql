@@ -83,6 +83,28 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail      TEXT
 );
 
+-- Platform user accounts (passwords as scrypt hashes only) and sign-in sessions (token stored as SHA-256).
+CREATE TABLE IF NOT EXISTS users (
+    username        TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    email           TEXT,
+    role            TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    active          BOOLEAN NOT NULL,
+    must_change     BOOLEAN NOT NULL,
+    created_ms      BIGINT NOT NULL,
+    updated_ms      BIGINT NOT NULL,
+    last_login_ms   BIGINT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash      TEXT PRIMARY KEY,
+    username        TEXT NOT NULL,
+    created_ms      BIGINT NOT NULL,
+    expires_ms      BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (username);
+
 -- TimescaleDB: hypertable with 1-day chunks, compression after 7 days, 2-year retention (MVP defaults).
 -- Set up once only: compression settings cannot be changed again after chunks have been compressed.
 DO $$

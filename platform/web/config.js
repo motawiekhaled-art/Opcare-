@@ -73,13 +73,16 @@
   // ------------------------------------------------------------------ router
   function route() {
     const hash = location.hash || "#live";
-    const view = hash === "#sources" ? "sources" : (hash === "#new-source" || hash.startsWith("#edit-")) ? "editor" : "live";
+    const view = hash === "#sources" ? "sources" : (hash === "#new-source" || hash.startsWith("#edit-")) ? "editor" : hash === "#admin" ? "admin" : "live";
     $("view-live").hidden = view !== "live"; $("view-sources").hidden = view !== "sources"; $("view-editor").hidden = view !== "editor";
-    $("tab-live").classList.toggle("active", view === "live"); $("tab-sources").classList.toggle("active", view !== "live");
-    $("tab-live").setAttribute("aria-current", view === "live" ? "page" : "false");
-    $("tab-sources").setAttribute("aria-current", view !== "live" ? "page" : "false");
-    $("app-sub").textContent = view === "live" ? "Live values" : "Source configuration";
+    $("view-admin").hidden = view !== "admin";
+    const tab = view === "editor" ? "sources" : view;
+    [["tab-live", "live"], ["tab-sources", "sources"], ["tab-admin", "admin"]].forEach(([id, v]) => {
+      $(id).classList.toggle("active", tab === v); $(id).setAttribute("aria-current", tab === v ? "page" : "false");
+    });
+    $("app-sub").textContent = {live: "Live values", sources: "Source configuration", editor: "Source configuration", admin: "Administration"}[view];
     if (!token()) return;
+    if (view === "admin") { window.OpcareAdmin?.open().catch((e) => toast(e.message, "error")); return; }
     if (view === "sources") renderList().catch((e) => toast(e.message, "error"));
     if (view === "editor") {
       const m = hash.match(/^#edit-(.+)$/);
@@ -851,6 +854,6 @@
   // ------------------------------------------------------------------ start
   window.addEventListener("load", () => { route(); });
   // after signing in, app.js stores the token; render the current configuration view then
-  const obs = new MutationObserver(() => { if (!$("login").hidden) return; if (location.hash && location.hash !== "#live") route(); });
+  const obs = new MutationObserver(() => { if (!$("login").hidden) return; me = null; if (location.hash && location.hash !== "#live") route(); });
   obs.observe($("login"), {attributes: true, attributeFilter: ["hidden"]});
 })();

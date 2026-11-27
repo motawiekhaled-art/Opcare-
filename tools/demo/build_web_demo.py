@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "platform"))
 from daq_platform.catalog import CATALOG, TEMPLATES  # noqa: E402
 
 BANNER = ('<div class="demo-banner" role="note"><strong>Interactive demo</strong> &middot; simulated devices run in your '
-          'browser; changes reset when you reload. Try <a href="#new-source">+ New source</a> &rarr; '
+          'browser; changes reset when you reload. Admins manage users in the <a href="#admin">Admin</a> tab. Try <a href="#new-source">+ New source</a> &rarr; '
           '<b>IT &amp; Network</b> &rarr; SNMP (switch + UPS), <b>IoT Sensors</b> &rarr; UDP datagrams (GPS + weather station), '
           'or Energy &amp; Utilities &rarr; Modbus TCP (pump station) &rarr; &ldquo;Use these settings&rdquo;.</div>')
 BANNER_CSS = """
@@ -51,7 +51,8 @@ def build() -> str:
             + script(catalog)
             + script((ROOT / "tools" / "demo" / "web" / "mock-backend.js").read_text(encoding="utf-8"))
             + script((WEB / "app.js").read_text(encoding="utf-8"))
-            + script((WEB / "config.js").read_text(encoding="utf-8")))
+            + script((WEB / "config.js").read_text(encoding="utf-8"))
+            + script((WEB / "admin.js").read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

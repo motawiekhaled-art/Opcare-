@@ -6,7 +6,7 @@
 (() => {
   "use strict";
   const TOKEN = "opcare-demo";
-  try { sessionStorage.setItem("opcare-token", TOKEN); } catch (e) { /* storage blocked: the sign-in box offers the token */ }
+  try { sessionStorage.removeItem("opcare-token"); } catch (e) { /* the demo always starts at the sign-in screen */ }
 
   // ------------------------------------------------------------------ helpers
   const iso = (ms) => new Date(ms).toISOString();
@@ -592,11 +592,126 @@
     return out.sort((a, b) => a.tag_id.localeCompare(b.tag_id));
   }
 
-  async function handle(method, url, body) {
+
+  // ------------------------------------------------------------------ user accounts (as daq_platform/accounts.py)
+  const ROLE_RANK = {viewer: 1, operator: 2, engineer: 3, admin: 4};
+  const ROLE_TEXT = {viewer: "Sees live values, history and events", operator: "Same as viewer today; will acknowledge alarms when alarms are added",
+    engineer: "Operator + adds and changes data sources", admin: "Engineer + deletes sources and manages users"};
+  const DEMO_LOGIN = {username: "admin", password: "Opcare@2026"};
+  const users = new Map();
+  const sessions = new Map();         // token -> username
+  function addUser(username, name, role, password, mustChange, email = null) {
+    users.set(username, {username, name, email, role, password, active: true, must_change_password: mustChange,
+      created: iso(now()), updated: iso(now()), last_login: null});
+  }
+  addUser("admin", "Khaled (administrator)", "admin", DEMO_LOGIN.password, false);
+  addUser("ahmed.hassan", "Ahmed Hassan", "engineer", "Engineer@2026", false, "ahmed@example.com");
+  addUser("control.room", "Control Room", "viewer", "Viewer@2026", false);
+  const publicUser = (u) => { const {password, ...rest} = u; return rest; };
+  function passwordProblem(pw, username) {
+    if (typeof pw !== "string" || pw.length < 10) return "the password needs at least 10 characters";
+    if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) return "the password needs letters and at least one digit";
+    if (username && pw.toLowerCase().includes(username.toLowerCase())) return "the password must not contain the user name";
+    return null;
+  }
+  const NO_LOGIN = new Set(["/api/health", "/api/login"]);
+  const PW_ALLOWED = new Set(["/api/me", "/api/me/password", "/api/logout"]);
+  function whoIs(token, path) {
+    const u = users.get(sessions.get(token));
+    if (!u || !u.active) return {error: err(401, "UNAUTHORIZED", "please sign in")};
+    if (u.must_change_password && !PW_ALLOWED.has(path)) return {error: err(403, "PASSWORD_CHANGE_REQUIRED", "change your password first")};
+    return {u};
+  }
+  function needs(path, method) {
+    if (path.startsWith("/api/users") || (path.startsWith("/api/sources/") && method === "DELETE")) return "admin";
+    if (path.startsWith("/api/secrets") || path === "/api/sources-check" || path === "/api/sources-test" || path === "/api/sources-browse" ||
+      (path.startsWith("/api/sources") && method !== "GET" && !/\/admin\/(ping|get_diagnostics)$/.test(path))) return "engineer";
+    if (path === "/api/audit") return "admin";
+    return "viewer";
+  }
+  async function accountsApi(method, p, body, who, token) {
+    let m;
+    if (p === "/api/login") {
+      const name = String(body?.username || "").trim().toLowerCase(), u = users.get(name);
+      await sleep(250);
+      if (!u || !u.active || u.password !== body?.password) {
+        audit.unshift({ts: iso(now()), user: name || "?", action: "login_failed", target: name || "?", detail: ""});
+        return err(401, "LOGIN_FAILED", "user name or password is not correct");
+      }
+      const tok = crypto.randomUUID ? crypto.randomUUID() + crypto.randomUUID() : String(Math.random()).slice(2) + Date.now();
+      sessions.set(tok, name); u.last_login = iso(now());
+      audit.unshift({ts: iso(now()), user: name, action: "login", target: name, detail: ""});
+      return json({token: tok, expires_ms: now() + 12 * 3600e3, user: name, name: u.name, role: u.role, must_change_password: u.must_change_password, kind: "session"});
+    }
+    if (p === "/api/logout") { sessions.delete(token); audit.unshift({ts: iso(now()), user: who.username, action: "logout", target: who.username, detail: ""}); return json(null, 204); }
+    if (p === "/api/me") return json({user: who.username, name: who.name, role: who.role, must_change_password: who.must_change_password, kind: "session"});
+    if (p === "/api/me/password") {
+      if (body?.current !== who.password) return err(400, "BAD_PASSWORD", "the current password is not correct");
+      const prob = passwordProblem(body?.new, who.username);
+      if (prob) return err(400, "WEAK_PASSWORD", prob);
+      if (body.new === who.password) return err(400, "WEAK_PASSWORD", "choose a password different from the current one");
+      who.password = body.new; who.must_change_password = false;
+      audit.unshift({ts: iso(now()), user: who.username, action: "change_password", target: who.username, detail: ""});
+      return json(null, 204);
+    }
+    if (p === "/api/users" && method === "GET") return json({users: [...users.values()].sort((a, b) => a.username.localeCompare(b.username)).map(publicUser), roles: ROLE_TEXT});
+    if (p === "/api/users" && method === "POST") {
+      const name = String(body?.username || "").trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9._-]{1,31}$/.test(name)) return err(400, "BAD_REQUEST", "user name: 2-32 lower case letters, digits, dot, dash or underscore");
+      if (!ROLE_RANK[body.role]) return err(400, "BAD_REQUEST", "role must be one of viewer, operator, engineer, admin");
+      const prob = passwordProblem(body.password, name);
+      if (prob) return err(400, "WEAK_PASSWORD", prob);
+      if (users.has(name)) return err(409, "EXISTS", `user ${name} already exists`);
+      addUser(name, String(body.name || "").trim() || name, body.role, body.password, body.must_change_password !== false, body.email || null);
+      audit.unshift({ts: iso(now()), user: who.username, action: "create_user", target: name, detail: `role ${body.role}`});
+      return json(publicUser(users.get(name)), 201);
+    }
+    if ((m = p.match(/^\/api\/users\/([^/]+)(\/password)?$/))) {
+      const name = decodeURIComponent(m[1]), u = users.get(name);
+      if (!u) return err(404, "NOT_FOUND", `user ${name} not found`);
+      const admins = [...users.values()].filter((x) => x.role === "admin" && x.active).length;
+      const endSessions = () => [...sessions].forEach(([t, n]) => { if (n === name && t !== token) sessions.delete(t); });
+      if (m[2]) {
+        const prob = passwordProblem(body?.password, name);
+        if (prob) return err(400, "WEAK_PASSWORD", prob);
+        u.password = body.password; u.must_change_password = name !== who.username; endSessions();
+        audit.unshift({ts: iso(now()), user: who.username, action: "reset_password", target: name, detail: ""});
+        return json(null, 204);
+      }
+      if (method === "DELETE") {
+        if (name === who.username) return err(400, "SELF", "you cannot delete your own account");
+        if (u.role === "admin" && u.active && admins <= 1) return err(400, "LAST_ADMIN", "the platform must keep at least one active admin");
+        users.delete(name); endSessions();
+        audit.unshift({ts: iso(now()), user: who.username, action: "delete_user", target: name, detail: ""});
+        return json(null, 204);
+      }
+      const role = body?.role ?? u.role, active = body?.active ?? u.active;
+      if (!ROLE_RANK[role]) return err(400, "BAD_REQUEST", "role must be one of viewer, operator, engineer, admin");
+      if (name === who.username && (role !== "admin" || !active)) return err(400, "SELF", "you cannot remove your own admin role or disable yourself");
+      if (u.role === "admin" && u.active && (role !== "admin" || !active) && admins <= 1) return err(400, "LAST_ADMIN", "the platform must keep at least one active admin");
+      const changes = [role !== u.role ? `role ${role}` : null, active !== u.active ? `active ${active}` : null].filter(Boolean).join(", ") || "details";
+      Object.assign(u, {role, active: Boolean(active), name: String(body?.name ?? u.name).trim() || name, email: body?.email ?? u.email, updated: iso(now())});
+      if (!u.active) endSessions();
+      audit.unshift({ts: iso(now()), user: who.username, action: "update_user", target: name, detail: changes});
+      return json(publicUser(u));
+    }
+    return null;
+  }
+
+  async function handle(method, url, body, token) {
     const p = url.pathname.replace(/^.*\/api\//, "/api/");
     let m;
-    if (p === "/api/health") return json({status: "ok", time: iso(now()), db: "browser (demo)", login_hint: TOKEN});
-    if (p === "/api/me") return json({user: "khaled", role: "admin"});
+    if (p === "/api/health") return json({status: "ok", time: iso(now()), db: "browser (demo)", login_hint: DEMO_LOGIN});
+    let who = null;
+    if (!NO_LOGIN.has(p)) {
+      const w = whoIs(token || url.searchParams.get("token"), p);
+      if (w.error) return w.error;
+      who = w.u;
+      const need = needs(p, method);
+      if (ROLE_RANK[who.role] < ROLE_RANK[need]) return err(403, "FORBIDDEN", `role ${who.role} cannot do this (needs ${need})`);
+    }
+    const acc = await accountsApi(method, p, body, who, token);
+    if (acc) return acc;
     if (p === "/api/catalog") return json(catalog());
     if (p === "/api/sources" && method === "GET") return json(listSources());
     if (p === "/api/sources" && method === "POST") { const [doc, e] = prepare(body, true); if (e) return e; save(doc, "khaled", true); return json(doc, 201); }
@@ -682,7 +797,8 @@
     let body;
     try { body = opts.body ? JSON.parse(opts.body) : undefined; } catch (e) { return err(400, "BAD_REQUEST", "body is not valid JSON"); }
     await sleep(rnd(15, 60));                                                     // a little network-like delay
-    return handle((opts.method || "GET").toUpperCase(), url, body);
+    const auth = new Headers(opts.headers || {}).get("Authorization") || "";
+    return handle((opts.method || "GET").toUpperCase(), url, body, auth.replace(/^Bearer\s+/i, ""));
   };
 
   // ------------------------------------------------------------------ the substation that is already configured

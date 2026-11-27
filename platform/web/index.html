@@ -19,11 +19,12 @@
     <nav class="tabs" aria-label="Main">
       <a href="#live" id="tab-live" class="tab">Live values</a>
       <a href="#sources" id="tab-sources" class="tab">Sources</a>
+      <a href="#admin" id="tab-admin" class="tab" hidden>Admin</a>
     </nav>
   </div>
   <div class="top-right">
     <span class="live" id="live" data-state="connecting"><span class="dot" aria-hidden="true"></span><span id="live-text">Connecting</span></span>
-    <span class="user" id="user"></span>
+    <button type="button" class="user-btn" id="user" title="Change my password"></button>
     <button type="button" class="btn ghost" id="signout">Sign out</button>
   </div>
 </header>
@@ -92,17 +93,42 @@
 
 <main id="view-editor" class="page" hidden></main>
 
+<main id="view-admin" class="page" hidden></main>
+
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<div class="modal" id="login" hidden>
-  <form class="modal-box" id="login-form">
+<div class="modal login-screen" id="login" hidden>
+  <form class="modal-box" id="login-form" autocomplete="on">
     <img src="/static/opcare-logo.png" alt="Opcare Smart Services" class="logo">
-    <h2>Sign in</h2>
-    <label for="token">Access token</label>
-    <input id="token" type="password" autocomplete="current-password" required>
-    <p class="error" id="login-error" hidden>That token was not accepted.</p>
-    <p class="muted" id="login-hint" hidden>Demo: the demo access token is filled in. Click Sign in.</p>
-    <button type="submit" class="btn primary">Sign in</button>
+    <div>
+      <h2>Sign in</h2>
+      <p class="muted small">Data Acquisition Platform</p>
+    </div>
+    <label for="login-user">User name</label>
+    <input id="login-user" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+    <label for="login-pass">Password</label>
+    <input id="login-pass" name="password" type="password" autocomplete="current-password" required>
+    <p class="error" id="login-error" role="alert" hidden></p>
+    <p class="muted" id="login-hint" hidden></p>
+    <button type="submit" class="btn primary" id="login-btn">Sign in</button>
+    <p class="muted small">Forgot your password? Ask an administrator to reset it.</p>
+  </form>
+</div>
+
+<div class="modal" id="pw-modal" hidden>
+  <form class="modal-box" id="pw-form" autocomplete="off">
+    <h2 id="pw-title">Change your password</h2>
+    <p class="muted small" id="pw-why" hidden>Your administrator set a temporary password. Choose your own to continue.</p>
+    <label for="pw-current">Current password</label>
+    <input id="pw-current" type="password" autocomplete="current-password" required>
+    <label for="pw-new">New password</label>
+    <input id="pw-new" type="password" autocomplete="new-password" required minlength="10">
+    <label for="pw-confirm">New password again</label>
+    <input id="pw-confirm" type="password" autocomplete="new-password" required minlength="10">
+    <p class="muted small">At least 10 characters, with letters and at least one digit.</p>
+    <p class="error" id="pw-error" role="alert" hidden></p>
+    <div class="row-end"><button type="button" class="btn ghost" id="pw-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="pw-save">Change password</button></div>
   </form>
 </div>
 
@@ -116,5 +142,6 @@
 
 <script src="/static/app.js"></script>
 <script src="/static/config.js"></script>
+<script src="/static/admin.js"></script>
 </body>
 </html>

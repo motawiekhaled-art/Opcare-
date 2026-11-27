@@ -38,6 +38,7 @@ for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "con
 
 import uvicorn  # noqa: E402
 
+from daq_platform.accounts import Accounts  # noqa: E402
 from daq_platform.api import create_app  # noqa: E402
 from daq_platform.bus import InMemoryBus  # noqa: E402
 from daq_platform.services import Platform  # noqa: E402
@@ -54,6 +55,7 @@ from opcare_connector_sdk import SchemaValidator  # noqa: E402
 from opcare_connector_sdk.testing import find_schemas  # noqa: E402
 
 SITE, SOURCE = "ss-giza-220kv", "modbus-mcc-01"
+DEMO_ADMIN_PASSWORD = "Opcare@2026"
 
 
 PUMP_TAGS = [   # what the "Pump Station West" simulator offers; shown on the configuration screen
@@ -271,7 +273,9 @@ async def main() -> int:
     ap.add_argument("--no-faults", action="store_true", help="do not take meter 2 offline periodically")
     ap.add_argument("--open", action="store_true", help="open the web browser when the demo is ready")
     ap.add_argument("--login-hint", action="store_true",
-                    help="pre-fill the admin token on the sign-in screen (demo links such as GitHub Codespaces)")
+                    help="show the demo user name and password on the sign-in screen (demo links such as GitHub Codespaces)")
+    ap.add_argument("--admin-user", default="admin", help="first admin user created when the database has no users")
+    ap.add_argument("--admin-password", default=DEMO_ADMIN_PASSWORD, help="its password (change it after signing in)")
     ap.add_argument("--self-test", type=int, metavar="SECONDS", default=0,
                     help="check that live values arrive through the API, then exit (0 = pass); used by CI")
     args = ap.parse_args()
@@ -327,10 +331,12 @@ async def main() -> int:
     else:
         await platform.save_source(cfg, "demo-setup", create=True)
 
-    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info,
-                                                      login_hint=token if args.login_hint else None), host=args.host, port=args.port,
-                                           log_level="warning", access_log=False))
-    url = f"http://{args.host}:{args.port}/?token={token}"
+    accounts = Accounts(store)
+    await accounts.ensure_admin(args.admin_user, args.admin_password, "Khaled (administrator)")
+    hint = {"username": args.admin_user, "password": args.admin_password} if args.login_hint else None
+    server = uvicorn.Server(uvicorn.Config(create_app(platform, tokens, demo_info=demo_info, login_hint=hint, accounts=accounts),
+                                           host=args.host, port=args.port, log_level="warning", access_log=False))
+    url = f"http://{args.host}:{args.port}/"
 
     async def open_when_ready():
         while not server.started:
@@ -344,7 +350,8 @@ async def main() -> int:
 
     result = {"ok": False}
     opener = asyncio.create_task(open_when_ready())
-    print(f"\n  Opcare DAQ demo starting\n  Open:  http://{args.host}:{args.port}/?token={token}\n"
+    print(f"\n  Opcare DAQ demo starting\n  Open:  http://{args.host}:{args.port}/\n"
+          f"  Sign in: user '{args.admin_user}', password '{args.admin_password}' (Admin tab: add users)\n"
           f"  API:   curl -H 'Authorization: Bearer {token}' http://{args.host}:{args.port}/api/tags\n"
           f"  Stop:  Ctrl+C\n", flush=True)
     try:

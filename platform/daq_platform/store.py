@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 SQL_DIR = pathlib.Path(__file__).with_name("sql")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def iso_to_ms(ts: str) -> int:
@@ -220,3 +220,75 @@ class Store:
         rows = self._q("SELECT ts_ms, username, action, target, detail FROM audit_log ORDER BY id DESC LIMIT ?",
                        (limit,))
         return [{"ts": ms_to_iso(t), "user": u, "action": a, "target": tg, "detail": d} for t, u, a, tg, d in rows]
+
+    # ------------------------------------------------------------ users and sessions
+    USER_COLS = "username, name, email, role, active, must_change, created_ms, updated_ms, last_login_ms"
+
+    @staticmethod
+    def _user(row) -> dict:
+        u, n, e, r, a, m, c, up, ll = row
+        return {"username": u, "name": n, "email": e, "role": r, "active": bool(a), "must_change_password": bool(m),
+                "created": ms_to_iso(c), "updated": ms_to_iso(up), "last_login": ms_to_iso(ll) if ll else None}
+
+    def list_users(self) -> list[dict]:
+        return [self._user(r) for r in self._q(f"SELECT {self.USER_COLS} FROM users ORDER BY username")]
+
+    def get_user(self, username: str) -> dict | None:
+        rows = self._q(f"SELECT {self.USER_COLS}, password_hash FROM users WHERE username = ?", (username,))
+        if not rows:
+            return None
+        return {**self._user(rows[0][:-1]), "password_hash": rows[0][-1]}
+
+    def create_user(self, username: str, name: str, email: str | None, role: str, password_hash: str,
+                    must_change: bool) -> None:
+        t = now_ms()
+        self._x("""INSERT INTO users (username, name, email, role, password_hash, active, must_change, created_ms, updated_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (username, name, email, role, password_hash, True, must_change, t, t))
+
+    def update_user(self, username: str, name: str, email: str | None, role: str, active: bool) -> None:
+        self._x("UPDATE users SET name = ?, email = ?, role = ?, active = ?, updated_ms = ? WHERE username = ?",
+                (name, email, role, active, now_ms(), username))
+
+    def set_password(self, username: str, password_hash: str, must_change: bool) -> None:
+        self._x("UPDATE users SET password_hash = ?, must_change = ?, updated_ms = ? WHERE username = ?",
+                (password_hash, must_change, now_ms(), username))
+
+    def delete_user(self, username: str) -> None:
+        self._x("DELETE FROM sessions WHERE username = ?", (username,), commit=False)
+        self._x("DELETE FROM users WHERE username = ?", (username,), commit=False)
+        self._conn.commit()
+
+    def count_admins(self) -> int:
+        rows = self._q("SELECT count(*) FROM users WHERE role = ? AND active = ?", ("admin", True))
+        return rows[0][0] if rows else 0
+
+    def count_users(self) -> int:
+        rows = self._q("SELECT count(*) FROM users")
+        return rows[0][0] if rows else 0
+
+    def touch_login(self, username: str) -> None:
+        self._x("UPDATE users SET last_login_ms = ? WHERE username = ?", (now_ms(), username))
+
+    def create_session(self, token_hash: str, username: str, expires_ms: int) -> None:
+        t = now_ms()
+        self._x("DELETE FROM sessions WHERE expires_ms < ?", (t,), commit=False)
+        self._x("INSERT INTO sessions (token_hash, username, created_ms, expires_ms) VALUES (?, ?, ?, ?)",
+                (token_hash, username, t, expires_ms), commit=False)
+        self._conn.commit()
+
+    def get_session(self, token_hash: str) -> tuple | None:
+        """(user dict, expires_ms) for a live session of an active user, else None."""
+        rows = self._q(f"""SELECT {', '.join('u.' + c.strip() for c in self.USER_COLS.split(','))}, s.expires_ms
+                           FROM sessions s JOIN users u ON u.username = s.username
+                           WHERE s.token_hash = ? AND s.expires_ms > ? AND u.active = ?""",
+                       (token_hash, now_ms(), True))
+        return (self._user(rows[0][:-1]), rows[0][-1]) if rows else None
+
+    def extend_session(self, token_hash: str, expires_ms: int) -> None:
+        self._x("UPDATE sessions SET expires_ms = ? WHERE token_hash = ?", (expires_ms, token_hash))
+
+    def delete_session(self, token_hash: str) -> None:
+        self._x("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+    def delete_user_sessions(self, username: str, keep: str | None = None) -> None:
+        self._x("DELETE FROM sessions WHERE username = ? AND token_hash <> ?", (username, keep or ""))

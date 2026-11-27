@@ -105,9 +105,21 @@ def main(admin_dsn: str) -> None:
     st.save_event({"id": "01JBX3Q7K2M8V5T9N4R6C1D0EF", "src": "src", "type": "conn.lost", "severity": "medium",
                    "ts": "2026-11-03T18:00:00.000Z", "message": "Device m2 unreachable"})
     st.audit("khaled", "create_source", "src", "revision 1")
+    st.create_user("ahmed", "Ahmed O'Neil", "a@example.com", "engineer", "scrypt$hash", True)
+    st.create_user("viewer1", "Viewer", None, "viewer", "scrypt$hash2", False)
+    st.update_user("ahmed", "Ahmed O'Neil", None, "admin", True)
+    st.set_password("ahmed", "scrypt$new", False)
+    st.touch_login("ahmed")
+    st.create_session("tokenhash1", "ahmed", 10 ** 14)
+    st.create_session("tokenhash2", "viewer1", 10 ** 14)
+    st.extend_session("tokenhash1", 10 ** 14 + 5)
+    st.delete_user_sessions("ahmed", "tokenhash1")
+    st.delete_session("tokenhash9")
+    st.delete_user("viewer1")
     queries = len(st._conn.log)
     st.list_sources(); st.list_tags(); st.list_tags("src", "s1.", 10); st.history("s1.a", 0, 10 ** 14, 100)
     st.events(10, 0); st.seq_stats(); st.audit_log(10); st.get_source("src")
+    st.list_users(); st.get_user("ahmed"); st.count_admins(); st.count_users(); st.get_session("tokenhash1")
 
     statements = [render(s, p) for s, p in st._conn.log if s != "COMMIT"]
     psql(dsn, "BEGIN;\n" + "\n".join(statements[:queries]) + "\nCOMMIT;")
@@ -127,6 +139,10 @@ def main(admin_dsn: str) -> None:
         "tags replaced on update": ("SELECT count(*) FROM tags", "3"),
         "event stored": ("SELECT body->>'type' FROM events", "conn.lost"),
         "audit stored": ("SELECT action FROM audit_log", "create_source"),
+        "user stored and updated": ("SELECT role || ' ' || password_hash || ' ' || active::text || ' ' || (last_login_ms IS NOT NULL)::text FROM users",
+                                    "admin scrypt$new true true"),
+        "deleted user and its session gone": ("SELECT (SELECT count(*) FROM users WHERE username = 'viewer1') + (SELECT count(*) FROM sessions WHERE username = 'viewer1')", "0"),
+        "session kept and extended": ("SELECT token_hash || ' ' || expires_ms FROM sessions", "tokenhash1 100000000000005"),
     }
     failed = 0
     for name, (sql, want) in checks.items():
