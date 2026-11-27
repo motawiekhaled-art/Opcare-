@@ -277,6 +277,7 @@
       field("Site ID", inp("f-site", c.site, (v) => { c.site = v; }, {disabled: edit, required: true, placeholder: "e.g. ps-west"}), "The site whose edge node runs this connector.")));
     if (c.type === "udp") return h("div", {class: "step2"}, demoBoxFor("udp"), basics, ...udpConnection(), testPanel());
     if (c.type === "snmp") return h("div", {class: "step2"}, demoBoxFor("snmp"), basics, ...snmpConnection(), testPanel());
+    if (c.type === "mqtt") return h("div", {class: "step2"}, demoBoxFor("mqtt"), basics, ...mqttConnection(), testPanel());
     let link;
     if (c.type === "modbus") {
       const tcp = conn.transport === "tcp";
@@ -329,6 +330,7 @@
         : "Opens a short connection from the site's edge node. Nothing is saved."), out);
   }
   function okText(d) {
+    if (st.cfg.type === "mqtt") return `Connected · MQTT ${d.info?.protocol}${d.info?.tls ? " · TLS" : ""} · ${Object.entries(d.info?.subscriptions || {}).map(([f, r]) => `${f}: ${r}`).join(", ")}`;
     if (st.cfg.type === "udp") return `Heard · ${d.info?.datagrams ?? "?"} datagram(s) from ${d.info?.from} (${d.info?.format})`;
     if (st.cfg.type === "snmp") return `Connected · ${d.latency_ms} ms${d.info?.sysName ? ` · ${d.info.sysName}` : ""}${d.info?.sysDescr ? ` · ${d.info.sysDescr.slice(0, 60)}` : ""}`;
     return `Connected · ${d.latency_ms} ms${d.info?.exception ? ` (answered with exception ${d.info.exception})` : ""}`;
@@ -346,6 +348,7 @@
   function step3() {
     if (st.cfg.type === "udp") return step3udp();
     if (st.cfg.type === "snmp") return step3snmp();
+    if (st.cfg.type === "mqtt") return step3mqtt();
     const c = st.cfg, devs = c.connection.devices.map((d) => [d.id, d.id]);
     const prefix = `${c.site || "site"}.${c.source_id || "source"}.`;
     const rows = c.points.map((p, i) => {
@@ -462,6 +465,7 @@
     if (cfg.type === "modbus") return `Modbus ${(c.transport || "").toUpperCase()}`;
     if (cfg.type === "udp") return `${c.syslog ? "Syslog" : "UDP"} · port ${c.bind_port}`;
     if (cfg.type === "snmp") return `SNMP ${c.version === "3" ? "v3" : "v" + c.version}`;
+    if (cfg.type === "mqtt") return `MQTT · ${String(c.broker_url || "").replace(/^mqtts?:\/\//, "")}`;
     return cfg.type;
   }
   function blankConnection(p) {
@@ -470,6 +474,8 @@
       if (/syslog/i.test(p.name)) c.syslog = {min_severity: "warning"};
       return c;
     }
+    if (p.connector === "mqtt") return {broker_url: "mqtt://", protocol_version: "5", auth: "anonymous", keepalive_s: 60,
+      subscriptions: [{topic_filter: "", qos: 1}]};
     if (p.connector === "snmp") return {version: p.preset?.version || "2c", port: p.port || 161, devices: [{id: "device-1", host: "", name: ""}], retries: 1, max_oids_per_request: 20};
     return {transport: "tcp", host: "", port: 502, devices: [{id: "device-1", unit_id: 1, name: ""}]};
   }
@@ -477,12 +483,19 @@
     const base = {batch_max_values: 500, batch_max_ms: 1000, integrity_s: 900};
     if (type === "udp") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
     if (type === "snmp") return {...base, default_scan_ms: 10000, request_timeout_ms: 2000};
+    if (type === "mqtt") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
     return {...base, default_scan_ms: 1000, request_timeout_ms: 1000};
   }
   const hasSecret = (ref, kind) => Boolean(st.secrets?.[kind]) || (ref && (storedSecrets.includes(ref) || !catalog.secrets));
   function connectionComplete(c) {
     const conn = c.connection;
     if (c.type === "udp") return conn.bind_port && conn.senders?.length && conn.senders.every((x) => x.id && x.host);
+    if (c.type === "mqtt") {
+      const auth = conn.auth || "anonymous";
+      return /^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(conn.broker_url || "") && conn.subscriptions?.length && conn.subscriptions.every((x) => x.topic_filter)
+        && (auth !== "username" || (conn.username && hasSecret(conn.password_ref, "password")))
+        && (auth !== "certificate" || (hasSecret(conn.client_cert_ref, "client-cert") && hasSecret(conn.client_key_ref, "client-key")));
+    }
     if (c.type === "snmp") {
       if (!conn.devices?.length || !conn.devices.every((d) => d.id && d.host)) return false;
       if (conn.version !== "3") return hasSecret(conn.community_ref, "community");
@@ -500,6 +513,7 @@
   function connectionSummary(c) {
     const conn = c.connection;
     if (c.type === "udp") return `Listening on UDP ${conn.bind_host || "0.0.0.0"}:${conn.bind_port}${conn.syslog ? ` · syslog events from ${conn.syslog.min_severity}` : ""}`;
+    if (c.type === "mqtt") return `${conn.broker_url} · MQTT ${conn.protocol_version === "3.1.1" ? "3.1.1" : "5.0"} · ${conn.auth || "anonymous"}`;
     if (c.type === "snmp") return `SNMP ${conn.version === "3" ? `v3 · user ${conn.v3?.username} · ${conn.v3?.security_level}` : "v" + conn.version + " · community"} · port ${conn.port || 161}${conn.traps ? ` · traps on UDP ${conn.traps.bind_port}` : ""}`;
     return conn.transport === "tcp" ? `${conn.host}:${conn.port}` : `${conn.serial?.device} · ${conn.serial?.baud} baud`;
   }
@@ -507,6 +521,7 @@
     const conn = c.connection;
     if (c.type === "udp") return conn.senders.map((x) => `${x.id} (${x.host})`).join(", ");
     if (c.type === "snmp") return conn.devices.map((d) => `${d.id} (${d.host}${d.port ? ":" + d.port : ""})`).join(", ");
+    if (c.type === "mqtt") return `Subscribed to ${conn.subscriptions.map((x) => x.topic_filter).join(", ")}`;
     return conn.devices.map((d) => `${d.id} (unit ${d.unit_id})`).join(", ");
   }
 
@@ -516,6 +531,7 @@
     if (!list.length || st.mode === "edit") return null;
     const where = (d) => type === "udp" ? `sends to UDP port ${d.bind_port} from ${d.senders.map((x) => x.host).join(", ")}`
       : type === "snmp" ? `${d.devices.map((x) => `${x.host}:${x.port}`).join(", ")} · community "${d.community}"${d.v3 ? ` · v3 user ${d.v3.username}` : ""}`
+      : type === "mqtt" ? `broker ${d.broker_url} · ${d.subscriptions.map((x) => x.topic_filter).join(", ")}`
       : `${d.host}:${d.port}, unit ${d.unit_id}`;
     return h("aside", {class: "demo-box"}, h("b", {}, "Demo: simulated devices you can connect to"),
       list.map((d) => h("div", {class: "demo-dev"}, h("span", {}, `${d.name} — ${where(d)}`),
@@ -527,6 +543,8 @@
     if (!c.site) c.site = catalog.demo.site;
     if (d.type === "udp") {
       Object.assign(conn, {bind_host: "127.0.0.1", bind_port: d.bind_port, senders: d.senders.map((x) => ({...x}))});
+    } else if (d.type === "mqtt") {
+      Object.assign(conn, {broker_url: d.broker_url, subscriptions: d.subscriptions.map((x) => ({...x}))});
     } else {
       conn.port = d.devices[0].port;
       conn.devices = d.devices.map((x) => ({id: x.id, host: x.host, ...(x.port !== conn.port ? {port: x.port} : {}), name: x.name}));
@@ -543,6 +561,12 @@
   // ---------------- passwords: kept by the edge node, referenced by name in the configuration (spec section 3)
   function secretTargets() {
     const conn = st.cfg.connection, out = [];
+    if (st.cfg.type === "mqtt") {
+      if (conn.auth === "username") out.push(["password", conn, "password_ref"]);
+      if (String(conn.broker_url).startsWith("mqtts")) out.push(["ca-cert", conn, "ca_cert_ref"]);
+      if (conn.auth === "certificate") out.push(["client-cert", conn, "client_cert_ref"], ["client-key", conn, "client_key_ref"]);
+      return out;
+    }
     if (st.cfg.type !== "snmp") return out;
     if (conn.version === "3") { out.push(["auth", conn.v3, "auth_password_ref"], ["priv", conn.v3, "priv_password_ref"]); }
     else out.push(["community", conn, "community_ref"]);
@@ -637,6 +661,85 @@
     return [access, devices, timing];
   }
 
+
+  // ---------------- step 2: MQTT subscriber
+  function secretArea(label, kind, obj, key, help) {
+    if (!catalog.secrets) return field(`${label} (secret file name)`, inp(`f-${kind}`, obj[key], (v) => { obj[key] = v; }), help);
+    const saved = obj[key] && storedSecrets.includes(obj[key]);
+    return field(label, h("textarea", {id: `f-${kind}`, rows: 3, class: "mono", spellcheck: "false", value: st.secrets[kind] || "",
+      placeholder: saved ? "saved (paste to replace)" : "-----BEGIN CERTIFICATE-----",
+      oninput: (e) => { st.secrets[kind] = e.target.value; rerenderKeepFocus(); }}), help);
+  }
+  function mqttConnection() {
+    const conn = st.cfg.connection, acq = st.cfg.acquisition, tls = String(conn.broker_url).startsWith("mqtts"), auth = conn.auth || "anonymous";
+    const broker = h("fieldset", {}, h("legend", {}, "Broker (the client's MQTT server)"), h("div", {class: "form-grid"},
+      field("Broker address", inp("f-broker", conn.broker_url, (v) => { conn.broker_url = v.trim(); }, {placeholder: "mqtts://broker.example.com:8883"}),
+        "mqtt:// (port 1883) or mqtts:// with TLS (port 8883)."),
+      field("MQTT version", sel("f-mqtt-ver", conn.protocol_version || "5", [["5", "5.0"], ["3.1.1", "3.1.1"]], (v) => { conn.protocol_version = v; })),
+      field("Client ID", inp("f-client-id", conn.client_id, (v) => { if (v) conn.client_id = v; else delete conn.client_id; }, {placeholder: `opcare-${st.cfg.source_id || "source"}`}),
+        "Leave empty for the default. Must be unique on the broker."),
+      field("Sign-in", sel("f-mqtt-auth", auth, [["anonymous", "None (anonymous)"], ["username", "User name and password"], ["certificate", "Client certificate"]],
+        (v) => { conn.auth = v; if (v !== "username") { delete conn.username; delete conn.password_ref; } if (v !== "certificate") { delete conn.client_cert_ref; delete conn.client_key_ref; } })),
+      auth === "username" ? field("User name", inp("f-mqtt-user", conn.username, (v) => { conn.username = v; })) : null,
+      auth === "username" ? secretField("Password", "password", conn, "password_ref", "Stored on the edge node, never in the configuration.") : null),
+      tls ? h("div", {class: "form-grid"},
+        secretArea("Broker CA certificate (PEM)", "ca-cert", conn, "ca_cert_ref", "Only if the broker uses a private CA. Empty = the system's trusted CAs."),
+        auth === "certificate" ? secretArea("Client certificate (PEM)", "client-cert", conn, "client_cert_ref") : null,
+        auth === "certificate" ? secretArea("Client private key (PEM)", "client-key", conn, "client_key_ref") : null,
+        field("Certificate check", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-insecure", checked: Boolean(conn.insecure_skip_verify),
+          onchange: (e) => { if (e.target.checked) conn.insecure_skip_verify = true; else delete conn.insecure_skip_verify; render(); }}), " Skip (testing only — not safe)"))) : null);
+    const rows = conn.subscriptions.map((x, i) => h("tr", {},
+      h("td", {}, inp(`s-filter-${i}`, x.topic_filter, (v) => { x.topic_filter = v.trim(); }, {"aria-label": `Topic filter ${i + 1}`, placeholder: "meters/+/telemetry or spBv1.0/plant/#", class: "mono"})),
+      h("td", {}, sel(`s-qos-${i}`, x.qos ?? 1, [[1, "QoS 1 (at least once)"], [0, "QoS 0 (at most once)"]], (v) => { x.qos = Number(v); })),
+      h("td", {}, conn.subscriptions.length > 1 ? h("button", {type: "button", class: "btn ghost", onclick: () => { conn.subscriptions.splice(i, 1); render(); }}, "Remove") : null)));
+    const subs = h("fieldset", {}, h("legend", {}, "Subscriptions (topics to receive)"),
+      h("p", {class: "muted small"}, "+ matches one level, # everything below. For Sparkplug B use spBv1.0/<group>/#. The connector only subscribes — it never publishes to the broker."),
+      h("table", {class: "grid compact"}, h("thead", {}, h("tr", {}, ["Topic filter", "Delivery", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)),
+      h("button", {type: "button", class: "btn", onclick: () => { conn.subscriptions.push({topic_filter: "", qos: 1}); render(); }}, "Add subscription"));
+    const timing = h("fieldset", {}, h("legend", {}, "Connection"), h("div", {class: "form-grid"},
+      field("Keep-alive (s)", inp("f-keepalive", conn.keepalive_s ?? 60, (v) => { conn.keepalive_s = v; }, {type: "number", min: 0, max: 3600})),
+      field("Connect timeout (ms)", inp("f-timeout", acq.request_timeout_ms, (v) => { acq.request_timeout_ms = v; }, {type: "number", min: 500}))));
+    return [broker, subs, timing];
+  }
+
+  // ---------------- step 3: MQTT tags
+  const MQTT_FORMATS = [["json", "JSON field"], ["raw", "Plain value"], ["sparkplug_b", "Sparkplug B metric"]];
+  function setMqttFormat(p, f) {
+    const subs = st.cfg.connection.subscriptions.map((x) => x.topic_filter);
+    const topic = (subs.find((x) => !x.startsWith("spBv1.0")) || "devices/1/data").replace(/\/#$/, "/value").replace(/\+/g, "1");
+    const sp = (subs.find((x) => x.startsWith("spBv1.0/")) || "spBv1.0/group/#").split("/");
+    p.address = f === "sparkplug_b" ? {format: f, group_id: sp[1] && sp[1] !== "#" && sp[1] !== "+" ? sp[1] : "group", edge_node_id: "node", metric: "Metric"}
+      : f === "json" ? {format: f, topic, value_pointer: "/value"} : {format: f, topic};
+  }
+  function mqttWhere(p, i) {
+    const a = p.address, set = (k, v) => { if (v === "" || v === undefined) delete a[k]; else a[k] = v; };
+    if (a.format === "sparkplug_b") return [
+      inp(`p-grp-${i}`, a.group_id, (v) => { a.group_id = v; }, {"aria-label": "Group", placeholder: "group", style: "width:90px"}),
+      inp(`p-node-${i}`, a.edge_node_id, (v) => { a.edge_node_id = v; }, {"aria-label": "Edge node", placeholder: "edge node", style: "width:100px"}),
+      inp(`p-dev-sp-${i}`, a.device_id, (v) => { set("device_id", v); }, {"aria-label": "Device", placeholder: "device (opt.)", style: "width:100px"}),
+      inp(`p-metric-${i}`, a.metric, (v) => { a.metric = v; }, {"aria-label": "Metric", placeholder: "metric name"})];
+    const out = [inp(`p-topic-${i}`, a.topic, (v) => { a.topic = v.trim(); }, {"aria-label": "Topic", placeholder: "meters/118/telemetry", class: "mono"})];
+    if (a.format === "json") out.push(inp(`p-ptr-${i}`, a.value_pointer, (v) => { a.value_pointer = v; }, {"aria-label": "JSON pointer", placeholder: "/flow", style: "width:110px"}),
+      inp(`p-tsp-${i}`, a.timestamp_pointer, (v) => { set("timestamp_pointer", v); if (v && !a.timestamp_format) a.timestamp_format = "rfc3339"; if (!v) delete a.timestamp_format; },
+        {"aria-label": "Timestamp pointer", placeholder: "time /ts (opt.)", style: "width:100px"}),
+      a.timestamp_pointer ? sel(`p-tsf-${i}`, a.timestamp_format || "rfc3339", [["rfc3339", "ISO text"], ["epoch_ms", "ms"], ["epoch_s", "s"]], (v) => { a.timestamp_format = v; }) : null);
+    return out;
+  }
+  function step3mqtt() {
+    const c = st.cfg;
+    const rows = c.points.map((p, i) => h("tr", {class: st.errors.some((e) => e.row === i) ? "row-error" : ""},
+      h("td", {}, inp(`p-tag-${i}`, p.tag_id, (v) => { p.tag_id = v.toLowerCase(); }, {"aria-label": "Tag ID", class: TAG_RE.test(p.tag_id) ? "" : "invalid"})),
+      h("td", {}, sel(`p-fmt-${i}`, p.address.format, MQTT_FORMATS, (v) => { setMqttFormat(p, v); })),
+      h("td", {class: "where"}, h("div", {class: "inline"}, mqttWhere(p, i))),
+      typeCell(p, i), ...scaleCells(p, i), removeCell(c, p, i)));
+    const tools = h("div", {class: "toolbar"},
+      h("button", {type: "button", class: "btn primary", id: "add-tag", onclick: () => { const p = {tag_id: uniqueTag(`value-${c.points.length + 1}`), data_type: "float"}; setMqttFormat(p, "json"); c.points.push(p); render(); }}, "Add tag"),
+      h("button", {type: "button", class: "btn", id: "discover", disabled: st.browse?.busy, onclick: () => discover({listen_s: 8})}, st.browse?.busy ? "Listening…" : "Listen & pick values"),
+      h("span", {class: "muted small"}, "Listen subscribes for 8 s and lists the topics, JSON fields and Sparkplug metrics that arrive; click Add next to a value."));
+    return h("div", {class: "step3"}, tools, browsePanel(), errorList(),
+      tagTable(["Tag ID", "Format", "Topic / metric", "Type", "Unit", "Scale ×", "Offset +", "Deadband", ""], rows, [270, 150, 470, 120, 80, 80, 80, 80, 44]));
+  }
+
   // ---------------- step 3: shared helpers
   function uniqueTag(name) {
     const c = st.cfg, base = `${c.site}.${c.source_id}.${slug(name) || "tag"}`.replace(/\.\.+/g, ".");
@@ -676,7 +779,9 @@
     rerenderKeepFocus();
   }
   function addFromBrowse(item) {
-    const base = item.name.replace(/^\//, "").replace(/[/.]/g, "-");
+    const a = item.address || {};
+    const where = st.cfg.type === "mqtt" ? (a.format === "sparkplug_b" ? `${a.edge_node_id}${a.device_id ? "-" + a.device_id : ""}` : a.topic) : "";
+    const base = (where ? `${where}-` : "") + (st.cfg.type === "mqtt" && a.format === "raw" ? "" : item.name.replace(/^\//, "")).replace(/[/.+#|]/g, "-");
     const p = {tag_id: uniqueTag(st.cfg.type === "snmp" ? `${item.address.device}-${base}` : base), address: {...item.address},
       data_type: item.data_type === "int" ? "int" : item.data_type || "float"};
     if (st.cfg.type === "snmp" && item.info?.type?.startsWith("Counter")) { p.address.transform = "rate"; p.data_type = "float"; }
@@ -781,6 +886,15 @@
     const items = b.items || [];
     const have = new Set(st.cfg.points.map((p) => JSON.stringify(p.address)));
     const rows = items.slice(0, 400).map((it) => {
+      if (it.kind === "object" && it.address) {
+        const added = have.has(JSON.stringify(it.address));
+        return h("tr", {class: "group"}, h("td", {class: "mono"}, it.name), h("td", {}, it.data_type || ""), h("td", {class: "mono small"}, it.info?.sample ?? ""),
+          h("td", {}, h("button", {type: "button", class: "btn", disabled: added, onclick: () => addFromBrowse(it)}, added ? "Added" : "Add")));
+      }
+      if (it.kind === "object" && st.cfg.type !== "udp") {
+        return h("tr", {class: "group"}, h("td", {colspan: 4}, h("b", {class: "mono"}, it.name), ` · ${it.info?.format} · ${it.info?.messages} message(s)`,
+          h("div", {class: "mono small sample"}, it.info?.sample || "")));
+      }
       if (it.kind === "object") {
         const senderKnown = it.info?.device;
         return h("tr", {class: "group"}, h("td", {colspan: 3}, h("b", {}, it.name), ` · ${it.info?.format} · ${it.info?.datagrams} datagram(s)`, h("div", {class: "mono small sample"}, it.info?.sample || "")),

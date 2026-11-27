@@ -9,12 +9,13 @@ Layout follows Architecture document OSS-DAQ-ARC-001 section 13.1. Only the part
 docs/connector-spec/        Connector specification OSS-DAQ-CON-001: rulebook, schemas, AsyncAPI, examples
 connectors/sdk-python/      Python connector SDK (runtime, value pipeline, guard, test harness)
 connectors/modbus/          Modbus TCP / RTU connector 1.0.0 (reference connector)
+connectors/mqtt/            MQTT subscriber 1.0.0 (3.1.1 / 5.0, TLS): JSON, plain values and Sparkplug B from IoT and edge gateways
 connectors/udp/             UDP listener 1.0.0: NMEA 0183, CSV, JSON, binary telegrams and syslog pushed by devices
 connectors/snmp/            SNMP manager 1.0.0 (v1, v2c, v3): switches, servers, UPSs, firewalls; traps as events
 platform/                   Central platform: ingest, storage, configuration service, API, live-values and configuration screens
 edge/                       Edge agent: starts a connector per configured source, tests configurations before saving
-tools/simulators/           Device simulators (Modbus TCP, SNMP agent)
-tools/demo/                 One-command demo: simulated substation, pump station, switch + UPS, GNSS/weather station
+tools/simulators/           Device simulators (Modbus TCP, SNMP agent, MQTT broker)
+tools/demo/                 One-command demo: substation, pump station, switch + UPS, GNSS/weather station, water meters + solar plant (MQTT)
 ```
 
 Still to come: alarms, the container-based production edge agent, other connectors,

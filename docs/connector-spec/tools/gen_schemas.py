@@ -347,6 +347,7 @@ protocol("mqtt", "MQTT subscriber configuration",
            "username": {"type": "string"}, "password_ref": SECRET, "client_cert_ref": SECRET,
            "client_key_ref": SECRET, "ca_cert_ref": SECRET,
            "insecure_skip_verify": {"type": "boolean", "default": False},
+           "keepalive_s": integer(0, 3600, 60),
            "subscriptions": {"type": "array", "minItems": 1, "items": obj(
                {"topic_filter": {"type": "string", "minLength": 1}, "qos": enum([0, 1], 1)},
                ["topic_filter"])}},

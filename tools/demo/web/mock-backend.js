@@ -193,6 +193,75 @@
     return {v: typeof v === "boolean" || typeof v === "string" ? v : scale(p, v), q: 192};
   }
 
+
+  // ---- MQTT broker with smart water meters (JSON) and a Sparkplug B solar edge node (as run_demo.py)
+  const BROKER = "mqtt://127.0.0.1:18830";
+  const METERS = [101, 102, 103, 104];
+  const brokerOk = (cfg) => String(cfg.connection.broker_url || "").replace(/\/$/, "") === BROKER && (cfg.connection.auth || "anonymous") === "anonymous";
+  const mqttTopicMatch = (f, t) => { const fp = f.split("/"), tp = t.split("/");
+    for (let i = 0; i < fp.length; i++) { if (fp[i] === "#") return true; if (i >= tp.length || (fp[i] !== "+" && fp[i] !== tp[i])) return false; }
+    return fp.length === tp.length; };
+  function meterDoc(m, ms) {
+    const t = (ms - t0) / 1000, flow = Math.max(0, (6 + m % 7) * (1 + 0.4 * Math.sin(t / 45 + m)));
+    return {id: m, ts: Math.floor(ms / 2000) * 2000, flow: r(flow, 2), total: r(15000 + m * 37 + t * flow / 3600, 3),
+      pressure: r(3.1 + 0.2 * Math.sin(t / 60 + m), 2), battery: 92 - m % 5, valve: "open"};
+  }
+  const inv3Down = (ms) => { const ph = ((ms - t0) / 1000) % 120; return ph >= 100; };
+  function solarMetrics(ms) {
+    const t = (ms - t0) / 1000, sun = Math.max(0, Math.sin(t / 600)) * 0.3 + 0.7;
+    const inv = [1, 2, 3].map((i) => (i === 3 && inv3Down(ms)) ? 0 : r(280 * sun * (1 + 0.03 * Math.sin(t / 30 + i)), 2));
+    const node = {"Plant/Power": ["Float", r(inv.reduce((a, b) => a + b, 0), 2)], "Plant/Energy": ["Double", r(18420 + t * 0.23, 3)],
+      "Plant/Irradiance": ["Float", r(950 * sun, 1)]};
+    const devs = {};
+    [1, 2, 3].forEach((i) => { devs[`inv-${i}`] = {Power: ["Float", inv[i - 1]], Temperature: ["Float", r(38 + i + 6 * sun, 1)], Running: ["Boolean", true], Faults: ["Int32", 0]}; });
+    return {node, devs};
+  }
+  function mqttCovered(cfg, topic) { return cfg.connection.subscriptions.some((x) => mqttTopicMatch(x.topic_filter, topic)); }
+  function mqttValue(cfg, p, ms) {
+    const a = p.address;
+    if (a.format === "sparkplug_b") {
+      if (a.group_id !== "solar" || a.edge_node_id !== "gw1" || !mqttCovered(cfg, `spBv1.0/solar/NDATA/gw1${a.device_id ? "/" + a.device_id : ""}`)) return null;
+      if (a.device_id === "inv-3" && inv3Down(ms)) return {v: null, q: 24, f: ["DEATH"]};
+      const sm = solarMetrics(ms), m = a.device_id ? sm.devs[a.device_id]?.[a.metric] : sm.node[a.metric];
+      if (!m) return null;
+      const v = coerce(m[1], p.data_type);
+      return Number.isNaN(v) || v === undefined ? {v: null, q: 4, f: ["TYPE_MISMATCH"]} : {v: typeof v === "number" ? scale(p, v) : v, q: 192};
+    }
+    const mm = METERS.find((m) => mqttTopicMatch(a.topic, `meters/${m}/telemetry`));
+    if (!mm || !mqttCovered(cfg, `meters/${mm}/telemetry`)) return null;
+    const doc = meterDoc(mm, ms);
+    let raw;
+    try { raw = a.format === "json" ? jsonPointer(doc, a.value_pointer || "") : JSON.stringify(doc); } catch (e) { return {v: null, q: 0, f: ["PARSE_ERROR"]}; }
+    const v = coerce(raw, p.data_type);
+    return v === undefined || Number.isNaN(v) ? {v: null, q: 0, f: ["PARSE_ERROR"]} : {v: typeof v === "number" ? scale(p, v) : v, q: 192};
+  }
+  function mqttListen(cfg) {
+    const ms = now(), items = [];
+    const filters = cfg.connection.subscriptions.map((x) => x.topic_filter);
+    const covered = (t) => filters.some((f) => mqttTopicMatch(f, t));
+    METERS.forEach((m) => {
+      const topic = `meters/${m}/telemetry`;
+      if (!covered(topic)) return;
+      const doc = meterDoc(m, ms);
+      items.push({path: topic, name: topic, kind: "object", has_children: true, info: {messages: 4, format: "json", retained: false, sample: JSON.stringify(doc)}});
+      Object.entries(doc).forEach(([k, v]) => items.push({path: `${topic}|/${k}`, name: `/${k}`, kind: "variable", has_children: false,
+        data_type: typeof v === "string" ? "string" : Number.isInteger(v) ? "int" : "float", address: {topic, format: "json", value_pointer: `/${k}`}, info: {sample: String(v)}}));
+    });
+    const sm = solarMetrics(ms);
+    const sp = (dev, metrics) => {
+      const key = `spBv1.0/solar/gw1${dev ? "/" + dev : ""}`;
+      if (!covered(`spBv1.0/solar/NDATA/gw1${dev ? "/" + dev : ""}`)) return;
+      items.push({path: key, name: key, kind: "object", has_children: true, info: {messages: 4, format: "sparkplug_b", retained: false,
+        sample: `Sparkplug B solar / gw1${dev ? " / " + dev : ""}: ${Object.keys(metrics).length} metric(s)`}});
+      Object.entries(metrics).sort().forEach(([name, [type, v]]) => items.push({path: `${key}|${name}`, name, kind: "variable", has_children: false,
+        data_type: type === "Boolean" ? "bool" : type.startsWith("Int") ? "int" : "float",
+        address: {format: "sparkplug_b", group_id: "solar", edge_node_id: "gw1", ...(dev ? {device_id: dev} : {}), metric: name}, info: {sample: String(v), type}}));
+    };
+    sp(null, sm.node);
+    ["inv-1", "inv-2", "inv-3"].forEach((d) => { if (!(d === "inv-3" && inv3Down(ms))) sp(d, sm.devs[d]); });
+    return {items};
+  }
+
   // ---- SNMP agents
   const T = {INT: "INTEGER", STR: "OCTET STRING", OID: "OBJECT IDENTIFIER", TT: "TimeTicks", C32: "Counter32", C64: "Counter64", G32: "Gauge32"};
   function mib(kind, ms) {
@@ -281,7 +350,8 @@
     if (dt === "string") return {v: String(val), q: 192};
     return {v: scale(p, val), q: 192};
   }
-  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.connection.devices;
+  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : p.address.device;
+  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.connection.devices;
   function walk(cfg, path, maxItems) {
     const [devId, rest = "1.3.6.1.2.1"] = String(path || "").split(/\/(.*)/s);
     const dev = cfg.connection.devices.find((d) => d.id === (devId || cfg.connection.devices[0].id));
@@ -323,8 +393,18 @@
     if (!cfg.name) e.push("name: 'name' is a required property");
     if (!ID_RE.test(cfg.source_id || "")) e.push(`source_id: '${cfg.source_id || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
     if (!ID_RE.test(cfg.site || "")) e.push(`site: '${cfg.site || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
-    const devs = (cfg.type === "udp" ? c.senders : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
+    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
     if (!devs.length) e.push(`connection/${what}: at least one is required`);
+    if (cfg.type === "mqtt") {
+      if (!/^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(c.broker_url || "")) e.push("connection/broker_url: must be mqtt://host[:port] or mqtts://host[:port]");
+      if (!(c.subscriptions || []).length || c.subscriptions.some((x) => !x.topic_filter)) e.push("connection/subscriptions: at least one topic filter is required");
+      (cfg.points || []).forEach((p, i) => {
+        const a = p.address || {};
+        if (a.format === "sparkplug_b") { if (!a.group_id || !a.edge_node_id || !a.metric) e.push(`points/${i}/address: Sparkplug needs group, edge node and metric`); }
+        else if (!a.topic) e.push(`points/${i}/address: 'topic' is a required property`);
+        else if (!mqttCovered(cfg, a.topic.replace(/[+#]/g, "x"))) e.push(`points/${i}/address/topic: '${a.topic}' is not covered by any subscription`);
+      });
+    }
     devs.forEach((d, i) => {
       if (!ID_RE.test(d.id || "")) e.push(`connection/${what}/${i}/id: '${d.id}' does not match the ID pattern`);
       if (!d.host) e.push(`connection/${what}/${i}: 'host' is a required property`);
@@ -342,7 +422,7 @@
       if (!TAG_RE.test(p.tag_id || "")) e.push(`points/${i}/tag_id: '${p.tag_id}' does not match the tag pattern (lower case, dot-separated)`);
       if (seen.has(p.tag_id)) e.push(`points/${i}/tag_id: duplicate tag_id '${p.tag_id}'`);
       seen.add(p.tag_id);
-      if (!devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
+      if (cfg.type !== "mqtt" && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
       if (cfg.type === "snmp" && !/^\.?[0-2](\.(0|[1-9]\d{0,9}))+$/.test(a.oid || "")) e.push(`points/${i}/address/oid: '${a.oid || ""}' is not a numeric OID`);
       if (cfg.type === "udp" && a.format === "json" && !/^(\/[^/]*)*$/.test(a.value_pointer || "x")) e.push(`points/${i}/address/value_pointer: must start with /`);
       if (cfg.type === "udp" && a.format === "nmea" && !(a.sentence && a.field >= 1)) e.push(`points/${i}/address: NMEA needs a sentence and a field from 1`);
@@ -368,12 +448,14 @@
   }
   function deviceReachable(cfg, dev, ms) {
     if (cfg.type === "udp") return stationHeard(cfg, dev);
+    if (cfg.type === "mqtt") return brokerOk(cfg);
     if (cfg.type === "snmp") return !snmpAccess(cfg, dev).error;
     if (cfg.source_id === "modbus-mcc-01") return !(dev.id === "feeder-2" && feeder2Down(ms));
     return isPump(cfg.connection) && Number(dev.unit_id) === PUMP.unit;
   }
   function pointValue(cfg, p, ms, s) {
     if (cfg.type === "udp") return udpValue(p, ms);
+    if (cfg.type === "mqtt") return mqttValue(cfg, p, ms);
     if (cfg.type === "snmp") {
       const dev = cfg.connection.devices.find((d) => d.id === p.address.device), acc = dev ? snmpAccess(cfg, dev) : {};
       return acc.kind ? snmpConvert(p, mib(acc.kind, ms)[String(p.address.oid).replace(/^\./, "")], s, ms) : null;
@@ -395,17 +477,18 @@
         if (up && was !== "connected") event(sid, "conn.connected", "info", `Device ${d.id} connected`, {device: d.id});
         if (!up && was !== "unreachable") {
           event(sid, "conn.lost", "medium", `Device ${d.id} unreachable`, {device: d.id, attrs: {error: "CONN_TIMEOUT"}});
-          cfg.points.filter((p) => p.address.device === d.id).forEach((p) => batch.push(record(p.tag_id, null, 24, ms)));
+          cfg.points.filter((p) => devOfPoint(cfg, p) === d.id).forEach((p) => batch.push(record(p.tag_id, null, 24, ms)));
         }
         s.devState[d.id] = up ? "connected" : "unreachable";
         if (up) s.lastOk[d.id] = iso(ms);
-        const e = up ? null : cfg.type === "snmp" ? snmpAccess(cfg, d).error : cfg.type === "udp"
+        const e = up ? null : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
+          : cfg.type === "snmp" ? snmpAccess(cfg, d).error : cfg.type === "udp"
           ? {code: "CONN_TIMEOUT", message: `no datagram from sender ${d.id} for ${cfg.connection.silence_timeout_s ?? 60} s`}
           : {code: "CONN_TIMEOUT", message: `No response from unit ${d.unit_id} within ${cfg.acquisition?.request_timeout_ms ?? 1000} ms`};
         return {id: d.id, state: s.devState[d.id], last_ok: s.lastOk[d.id] || null, ...(e ? {error: e} : {})};
       });
       cfg.points.forEach((p) => {
-        if (s.devState[p.address.device] !== "connected" || p.enabled === false) return;
+        if (s.devState[devOfPoint(cfg, p)] !== "connected" || p.enabled === false) return;
         const pv = pointValue(cfg, p, ms, s);
         if (!pv) return;                                                         // nothing new for this point (no telegram / first rate sample)
         const {v, q, f} = pv, prev = latest.get(p.tag_id);
@@ -505,13 +588,15 @@
   ];
   function catalog() {
     const types = (window.__DEMO_CATALOG__ || []).map((t) => {
-      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
+      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
       return {...t, protocols, available: protocols.filter((p) => p.status === "available").length};
     });
-    return {types, available: ["modbus", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
+    return {types, available: ["modbus", "mqtt", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
       {name: "Pump Station West", device_id: "pump-plc", ...PUMP, unit_id: PUMP.unit, tags: PUMP_TAGS},
       {type: "snmp", name: "Server room switch and UPS", community: "public", v3: SNMP_V3, trap_port: TRAP_PORT,
         devices: [{id: "server-room-sw", host: "127.0.0.1", port: 161, name: "Server room switch"}, {id: "ups-1", host: "127.0.0.1", port: 1161, name: "UPS 10 kVA"}]},
+      {type: "mqtt", name: "Water meters and solar plant (MQTT broker)", broker_url: BROKER,
+        subscriptions: [{topic_filter: "meters/+/telemetry", qos: 1}, {topic_filter: "spBv1.0/solar/#", qos: 0}]},
       {type: "udp", name: "GNSS and weather station", bind_port: STATION.port, senders: [{id: "station", host: "127.0.0.1", name: "GNSS + weather station"}]}]}};
   }
 
@@ -526,7 +611,7 @@
     if (!create && !existing) return [null, err(404, "NOT_FOUND", `source ${id} not found`)];
     const doc = {spec: "1.0", revision: existing ? existing.config.revision + 1 : 1, enabled: true, ...JSON.parse(JSON.stringify(body)), source_id: id};
     doc.spec = "1.0"; doc.revision = existing ? existing.config.revision + 1 : 1;
-    if (!["modbus", "udp", "snmp"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['modbus', 'snmp', 'udp']`)];
+    if (!["modbus", "udp", "snmp", "mqtt"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['modbus', 'mqtt', 'snmp', 'udp']`)];
     const errors = doc.type === "modbus" ? validate(doc) : validateOther(doc);
     if (errors.length) return [null, err(422, "CFG_INVALID", "configuration is not valid", errors)];
     const taken = doc.points.map((p) => p.tag_id).filter((t) => tagOwner.has(t) && tagOwner.get(t) !== id);
@@ -549,6 +634,15 @@
     return pointValue(cfg, {tag_id: "adhoc", address: {...address, transform: "none"}, data_type}, now()) || {v: null, q: 4};
   }
   async function testConnection(cfg) {
+    if (cfg.type === "mqtt") {
+      await sleep(rnd(200, 450));
+      const c = cfg.connection, ok = brokerOk(cfg);
+      return {devices: [ok ? {id: "broker", ok: true, latency_ms: r(rnd(3, 9), 1), info: {broker: c.broker_url.replace(/^mqtts?:\/\//, ""), tls: c.broker_url.startsWith("mqtts"),
+        protocol: c.protocol_version === "3.1.1" ? "3.1.1" : "5.0", subscriptions: Object.fromEntries(c.subscriptions.map((x) => [x.topic_filter, `QoS ${x.qos ?? 1}`]))}}
+        : {id: "broker", ok: false, latency_ms: 0, error: (c.auth || "anonymous") !== "anonymous" && c.broker_url.replace(/\/$/, "") === BROKER
+          ? {code: "AUTH_FAILED", message: "broker refused the connection: not authorized (the demo broker allows anonymous access)"}
+          : {code: "CONN_REFUSED", message: `cannot connect to ${c.broker_url} (in this demo the broker is ${BROKER})`}}]};
+    }
     if (cfg.type === "udp") {
       const heard = cfg.connection.senders.some((x) => stationHeard(cfg, x)), listen = Math.min(30, Math.max(3, (cfg.acquisition?.request_timeout_ms || 5000) / 1000));
       await sleep(heard ? 1200 : Math.min(listen * 1000, 4000));
@@ -781,6 +875,11 @@
     if (doc.type === "udp") {
       await sleep(Math.min(8, args.listen_s || 10) * 250);
       return json({...res, ok: true, result: listen(doc, args.depth || 1)});
+    }
+    if (doc.type === "mqtt") {
+      await sleep(Math.min(8, args.listen_s || 10) * 250);
+      if (!brokerOk(doc)) return json({...res, ok: false, error: {code: "CONN_REFUSED", message: `cannot connect to ${doc.connection.broker_url}`}}, 502);
+      return json({...res, ok: true, result: mqttListen(doc)});
     }
     if (doc.type === "snmp") {
       await sleep(rnd(200, 500));
