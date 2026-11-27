@@ -1,0 +1,36 @@
+name: Demo page
+
+# Builds the self-contained demo page (real GUI + simulated platform and devices, no server needed).
+# Run it from the Actions tab with "Run workflow", or it runs by itself when main changes.
+# Download "opcare-demo-page" from the run's Artifacts, unzip it and open opcare-demo.html in Chrome.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["platform/web/**", "platform/daq_platform/catalog.py", "tools/demo/build_web_demo.py", "tools/demo/web/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the demo page
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          mkdir -p out
+          python tools/demo/build_web_demo.py out/opcare-demo.html
+          echo "### Demo page built" >> "$GITHUB_STEP_SUMMARY"
+          echo "Download **opcare-demo-page** below, unzip it and double-click **opcare-demo.html** to open it in Chrome." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opcare-demo-page
+          path: out/opcare-demo.html
+          retention-days: 90
