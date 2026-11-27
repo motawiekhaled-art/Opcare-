@@ -26,6 +26,13 @@ Click **Open in GitHub Codespaces** above, or share this link with anyone who ha
 GitHub starts the demo in the cloud and opens it in a new tab (first start about 2 minutes, later starts
 faster). Sign in with the pre-filled demo token. Details: `.devcontainer/README.md`.
 
+## Demo page (one HTML file, opens in Chrome)
+
+**Actions → Demo page → Run workflow**, wait about a minute, open the run and download **opcare-demo-page**
+from Artifacts. Unzip it and double-click `opcare-demo.html`: the real screens run with a simulated
+substation and pump station, no server needed. Send the file to anyone who should try it.
+Build it locally with `python tools/demo/build_web_demo.py opcare-demo.html`.
+
 ## Run everything
 
 ```bash
