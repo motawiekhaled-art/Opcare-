@@ -4,10 +4,10 @@ tools/simulators/snmp_sim.py over real UDP on localhost, every published message
 Run from the repository root:  python -m pytest connectors/snmp/tests -q
 """
 import asyncio
-import os
 import pathlib
 import socket
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 for p in ("connectors/sdk-python", "connectors/snmp", "tools/simulators"):
@@ -278,8 +278,7 @@ def test_v3_wrong_password_is_auth_failed_and_secrets_never_leak():
 def test_test_connection_unreachable_and_validation():
     async def run():
         conn = SnmpConnector()
-        tmp = pathlib.Path(os.environ.get("TMPDIR", "/tmp")) / f"snmp-secrets-{os.getpid()}"
-        tmp.mkdir(exist_ok=True)
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="snmp-secrets-"))
         (tmp / "community").write_text("public")
         (tmp / "short").write_text("abc")
         conn.secrets_dir = tmp
