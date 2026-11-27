@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "udp",
+  "name": "UDP datagram listener (NMEA 0183, CSV, JSON, binary, syslog)",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["subscribe"], "browse": true, "read_now": false, "device_timestamps": true, "tls": false },
+  "limits": { "max_points": 5000, "min_scan_ms": 100 }
+}

@@ -107,7 +107,11 @@ async def _api():
         energy = next(t for t in cat["types"] if t["id"] == "energy")
         st = {p["name"]: p["status"] for p in energy["protocols"]}
         assert st["Modbus TCP"] == "available" and st["IEC 61850 MMS"] == "specified"
-        assert {p["status"] for t in cat["types"] if t["id"] == "bms" for p in t["protocols"]} == {"planned"}
+        bms = {p["name"]: p["status"] for t in cat["types"] if t["id"] == "bms" for p in t["protocols"]}
+        assert bms["BACnet/IP"] == "planned" and bms["SNMP (UPS, PDU, cooling)"] == "specified"   # snmp not installed here
+        it = next(t for t in cat["types"] if t["id"] == "it")
+        assert any("UPS" in d for p in it["protocols"] if p["connector"] == "snmp" for d in p["devices"])
+        assert {t["id"] for t in cat["templates"]["snmp"]} >= {"system", "interface", "ups"}
 
         # check without saving: valid, invalid with schema details, unavailable connector, viewer refused
         status, res = await s.call("POST", f"{s.base}/api/sources-check", "t-eng", pump_cfg(s.sim_port))

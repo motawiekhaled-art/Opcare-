@@ -68,7 +68,9 @@
         "iec61850",
         "iec104",
         "dnp3",
-        "camera"
+        "camera",
+        "udp",
+        "snmp"
       ]
     },
     "errorCode": {

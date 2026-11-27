@@ -18,6 +18,7 @@ from starlette.responses import FileResponse, JSONResponse, Response, StreamingR
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from .catalog import TEMPLATES
 from .catalog import catalog as build_catalog
 from .services import ApiError, Platform
 from .store import iso_to_ms, now_ms
@@ -32,7 +33,7 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
     """demo_info: shown on the configuration screen when running the demo (simulated devices to try).
     schema_types: connector types that have a configuration schema (spec), for the catalog status."""
     store = platform.store
-    specified = schema_types or {"modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera"}
+    specified = schema_types or {"modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera", "udp", "snmp"}
 
     def auth(request: Request, need: str) -> dict:
         header = request.headers.get("authorization", "")
@@ -101,7 +102,7 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
         auth(request, "viewer")
         available = platform.available_types if platform.available_types is not None else specified
         return JSONResponse({"types": build_catalog(set(available), specified), "available": sorted(available),
-                             "demo": demo_info})
+                             "templates": TEMPLATES, "secrets": platform.secrets_dir is not None, "demo": demo_info})
 
     async def check_source(request):
         auth(request, "engineer")
@@ -116,6 +117,25 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
         res = await platform.test_unsaved(await body(request), who["user"], create=qp.get("mode", "create") == "create",
                                           source_id=qp.get("source_id"))
         return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+
+    async def browse_unsaved(request):
+        who = auth(request, "engineer")
+        qp = request.query_params
+        res = await platform.browse_unsaved(await body(request), who["user"],
+                                            create=qp.get("mode", "create") == "create", source_id=qp.get("source_id"))
+        return JSONResponse(res, status_code=200 if res.get("ok") else 502)
+
+    async def list_secrets(request):
+        auth(request, "engineer")
+        return JSONResponse({"names": platform.secret_names(), "managed_here": platform.secrets_dir is not None})
+
+    async def put_secret(request):
+        who = auth(request, "engineer")
+        name = request.path_params["name"]
+        data = await body(request)
+        platform.store_secret(name, data.get("value") if isinstance(data, dict) else None)
+        await store.run(store.audit, who["user"], "store_secret", name, "")   # never the value
+        return Response(status_code=204)
 
     async def tags(request):
         auth(request, "viewer")
@@ -187,6 +207,9 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
         Route("/api/catalog", get_catalog),
         Route("/api/sources-check", check_source, methods=["POST"]),
         Route("/api/sources-test", test_unsaved, methods=["POST"]),
+        Route("/api/sources-browse", browse_unsaved, methods=["POST"]),
+        Route("/api/secrets", list_secrets, methods=["GET"]),
+        Route("/api/secrets/{name}", put_secret, methods=["PUT"]),
         Route("/api/sources/{sid}", get_source, methods=["GET"]),
         Route("/api/sources/{sid}", update_source, methods=["PUT"]),
         Route("/api/sources/{sid}", delete_source, methods=["DELETE"]),

@@ -212,7 +212,7 @@
   }
 
   // ------------------------------------------------------------------ catalog
-  const SPECIFIED = new Set(["modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera"]);
+  const SPECIFIED = new Set(["modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera", "udp", "snmp"]);
   const PUMP_TAGS = [
     {name: "flow", address: {table: "holding_register", address: 0, encoding: "float32"}, data_type: "float", unit: "m3/h"},
     {name: "discharge-pressure", address: {table: "holding_register", address: 2, encoding: "float32"}, data_type: "float", unit: "bar"},

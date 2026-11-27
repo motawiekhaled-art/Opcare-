@@ -1,5 +1,7 @@
 # Packages for the one-command demo (python tools/demo/run_demo.py)
+# cryptography (Apache-2.0 OR BSD-3-Clause): AES for SNMPv3 privacy
 starlette>=0.40
 uvicorn>=0.30
 jsonschema>=4.18
 referencing>=0.30
+cryptography>=42

@@ -9,10 +9,12 @@ Layout follows Architecture document OSS-DAQ-ARC-001 section 13.1. Only the part
 docs/connector-spec/        Connector specification OSS-DAQ-CON-001: rulebook, schemas, AsyncAPI, examples
 connectors/sdk-python/      Python connector SDK (runtime, value pipeline, guard, test harness)
 connectors/modbus/          Modbus TCP / RTU connector 1.0.0 (reference connector)
+connectors/udp/             UDP listener 1.0.0: NMEA 0183, CSV, JSON, binary telegrams and syslog pushed by devices
+connectors/snmp/            SNMP manager 1.0.0 (v1, v2c, v3): switches, servers, UPSs, firewalls; traps as events
 platform/                   Central platform: ingest, storage, configuration service, API, live-values and configuration screens
 edge/                       Edge agent: starts a connector per configured source, tests configurations before saving
-tools/simulators/           Device simulators (Modbus TCP so far)
-tools/demo/                 One-command demo: simulated substation -> connector -> platform -> browser
+tools/simulators/           Device simulators (Modbus TCP, SNMP agent)
+tools/demo/                 One-command demo: simulated substation, pump station, switch + UPS, GNSS/weather station
 ```
 
 Still to come: alarms, the container-based production edge agent, other connectors,
@@ -36,11 +38,12 @@ Build it locally with `python tools/demo/build_web_demo.py opcare-demo.html`.
 ## Run everything
 
 ```bash
-pip install starlette uvicorn jsonschema referencing pytest   # + playwright for the browser test
+pip install starlette uvicorn jsonschema referencing pytest cryptography   # + playwright for the browser tests
 python tools/demo/run_demo.py                                 # live demo; open the printed URL
 python docs/connector-spec/tools/validate_examples.py          # spec examples
-python -m pytest connectors platform edge -q                  # 27 tests
+python -m pytest connectors platform edge -q                  # all tests
 python tools/simulators/modbus_sim.py --port 5020              # a Modbus device to point a connector at
+python tools/simulators/snmp_sim.py --port 10161               # an SNMP agent (community "public")
 ```
 
 ## Automatic testing (GitHub Actions)
@@ -51,7 +54,8 @@ Every pull request and every change to `main` runs `.github/workflows/ci.yml`:
 |---|---|
 | Linux | All tests, the browser test, and the full path simulator → connector → **real Mosquitto** → platform → **real PostgreSQL + TimescaleDB**; every database statement on TimescaleDB |
 | Windows, macOS | All tests, and the double-click launcher starting the demo and receiving live values (`--self-test`) |
-| Docker | Both container images build; the connector refuses to start without its settings |
+| SNMP interop | The SNMP connector against the real **net-snmp** agent (v1, v2c, v3 with SHA-256/SHA/MD5 + AES) and net-snmp's `snmptrap` / `snmpinform` |
+| Docker | All container images build; each connector refuses to start without its settings |
 
 Results: the **Actions** tab of the repository, and the checks at the bottom of each pull request.
 
