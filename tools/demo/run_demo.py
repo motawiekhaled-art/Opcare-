@@ -8,8 +8,12 @@ SDK runtime, the platform services, SQLite storage and the web API/GUI. The in-m
 Mosquitto, and the edge agent starts a connector for every configured source. Meter 2 of the substation drops
 off the network every 90 s for 20 s (--no-faults turns this off), to show quality, state and event handling.
 
-A second simulated device, "Pump Station West", is NOT configured at start: add it yourself on the
-Sources > New source screen (the screen offers its address and tags) to try the configuration flow.
+More simulated devices are NOT configured at start: add them yourself on the Sources > New source screen
+(the screen offers their addresses) to try the configuration flow:
+  - "Pump Station West"            Modbus TCP PLC (Energy & Utilities or Industrial PLC > Modbus TCP)
+  - "Server room switch" and "UPS"  SNMP agents, v2c community "public" or SNMPv3 (IT & Network > SNMP);
+                                    the switch also sends linkDown/linkUp traps to UDP port 10162
+  - "GNSS and weather station"     UDP telegrams: NMEA 0183, JSON and syslog (IoT Sensors > UDP datagrams)
 """
 from __future__ import annotations
 
@@ -28,7 +32,8 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "tools/simulators"):
+for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp",
+          "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
@@ -40,6 +45,11 @@ from daq_platform.store import Store  # noqa: E402
 from edge_agent import LocalAgent  # noqa: E402
 from modbus_connector import ModbusConnector  # noqa: E402
 from modbus_sim import ModbusSimulator  # noqa: E402
+from snmp_connector import SnmpConnector  # noqa: E402
+from snmp_connector.ber import INTEGER, OCTET_STRING, VarBind  # noqa: E402
+from snmp_connector.messages import UsmUser  # noqa: E402
+from snmp_sim import SnmpAgent, standard_mib, ups_mib  # noqa: E402
+from udp_connector import UdpConnector  # noqa: E402
 from opcare_connector_sdk import SchemaValidator  # noqa: E402
 from opcare_connector_sdk.testing import find_schemas  # noqa: E402
 
@@ -73,6 +83,73 @@ async def drive_pump_station(sim: ModbusSimulator) -> None:
         hours += 1 if random.random() < 0.01 else 0
         sim.set_value(1, "holding_register", 10, ">I", hours)
         await asyncio.sleep(1)
+
+
+SNMP_V3_DEMO = {"username": "opcare-ro", "auth_protocol": "SHA-256", "auth_password": "opcare-auth-2026",
+                "priv_password": "opcare-priv-2026"}
+TRAP_PORT = 10162
+
+
+async def drive_switch_traps(switch: SnmpAgent) -> None:
+    """Port 4 of the demo switch flaps every 45 s: ifOperStatus changes and a linkDown/linkUp trap is sent."""
+    up = True
+    while True:
+        await asyncio.sleep(45)
+        up = not up
+        switch.set("1.3.6.1.2.1.2.2.1.8.4", INTEGER, 1 if up else 2)
+        try:
+            switch.send_trap("127.0.0.1", TRAP_PORT, "1.3.6.1.6.3.1.1.5.4" if up else "1.3.6.1.6.3.1.1.5.3",
+                             [VarBind("1.3.6.1.2.1.2.2.1.1.4", INTEGER, 4),
+                              VarBind("1.3.6.1.2.1.2.2.1.2.4", OCTET_STRING, b"GigabitEthernet1/0/4")])
+        except OSError:
+            pass
+
+
+async def drive_udp_station(port: int) -> None:
+    """GNSS receiver + weather station pushing NMEA 0183 and JSON every second, and a firewall syslog now and then."""
+    def nmea(body: str) -> str:
+        c = 0
+        for ch in body:
+            c ^= ord(ch)
+        return f"${body}*{c:02X}\r\n"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    t0, n = time.time(), 0
+    try:
+        while True:
+            t = time.time() - t0
+            utc = time.strftime("%H%M%S", time.gmtime())
+            lat = 2959.8100 + 0.05 * math.sin(t / 60)            # Maadi, Cairo: 29°59.81' N 31°15.42' E
+            lon = 3115.4200 + 0.05 * math.cos(t / 60)
+            knots = max(0.0, 4 + 3 * math.sin(t / 20) + random.uniform(-0.2, 0.2))
+            msgs = [nmea(f"GPRMC,{utc}.00,A,{lat:.4f},N,{lon:09.4f},E,{knots:.1f},{(t * 3) % 360:.1f},"
+                         f"{time.strftime('%d%m%y', time.gmtime())},,,A")
+                    + nmea(f"GPGGA,{utc}.00,{lat:.4f},N,{lon:09.4f},E,1,{9 + int(t / 30) % 3},0.9,{38 + math.sin(t / 50):.1f},M,15.0,M,,"),
+                    json.dumps({"id": "ws-1", "ts": int(time.time() * 1000), "temp": round(27 + 3 * math.sin(t / 300), 2),
+                                "humidity": round(40 + 10 * math.sin(t / 200), 1),
+                                "wind": {"speed": round(max(0.0, 5 + 2 * math.sin(t / 15) + random.uniform(-0.5, 0.5)), 2),
+                                         "dir": round((200 + 40 * math.sin(t / 90)) % 360)}})]
+            if n % 30 == 15:
+                msgs.append(f"<12>{time.strftime('%b %d %H:%M:%S')} fw-1 kernel: blocked port scan from 10.9.8.{n % 200}")
+            for m in msgs:
+                try:
+                    sock.sendto(m.encode(), ("127.0.0.1", port))
+                except OSError:                           # nobody listening yet (Windows may report it)
+                    pass
+            n += 1
+            await asyncio.sleep(1)
+    finally:
+        sock.close()
+
+
+def free_udp(host: str, wanted: int) -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.bind((host, wanted))
+            return wanted
+        except OSError:
+            s.bind((host, 0))
+            return s.getsockname()[1]
 
 
 def pick_port(host: str, wanted: int) -> int:
@@ -212,15 +289,35 @@ async def main() -> int:
     pump = ModbusSimulator(strict=True)
     pump_port = await pump.start()
     pump_task = asyncio.create_task(drive_pump_station(pump))
-    demo_info = {"site": "ps-west", "devices": [{"name": "Pump Station West", "device_id": "pump-plc", "host": "127.0.0.1",
-                                                 "port": pump_port, "unit_id": 1, "tags": PUMP_TAGS}]}
+    switch = SnmpAgent("public", users=[UsmUser(SNMP_V3_DEMO["username"], "authPriv", "SHA-256", SNMP_V3_DEMO["auth_password"],
+                                                "AES", SNMP_V3_DEMO["priv_password"])])
+    standard_mib(switch, "server-room-sw", "Opcare demo switch, 8 x 1 GbE", interfaces=8,
+                 traffic=lambda i: int(125000 * (i * 7 % 10 + 1)))
+    ups = SnmpAgent("public", users=list(switch.users.values()))
+    standard_mib(ups, "ups-1", "Opcare demo UPS 10 kVA", interfaces=1)
+    ups_mib(ups)
+    switch_port, ups_port = await switch.start(), await ups.start()
+    trap_task = asyncio.create_task(drive_switch_traps(switch))
+    udp_port = free_udp("127.0.0.1", 5514)
+    udp_task = asyncio.create_task(drive_udp_station(udp_port))
+
+    demo_info = {"site": "ps-west", "devices": [
+        {"name": "Pump Station West", "device_id": "pump-plc", "host": "127.0.0.1", "port": pump_port, "unit_id": 1,
+         "tags": PUMP_TAGS},
+        {"type": "snmp", "name": "Server room switch and UPS", "community": "public", "v3": SNMP_V3_DEMO, "trap_port": TRAP_PORT,
+         "devices": [{"id": "server-room-sw", "host": "127.0.0.1", "port": switch_port, "name": "Server room switch"},
+                     {"id": "ups-1", "host": "127.0.0.1", "port": ups_port, "name": "UPS 10 kVA"}]},
+        {"type": "udp", "name": "GNSS and weather station", "bind_port": udp_port,
+         "senders": [{"id": "station", "host": "127.0.0.1", "name": "GNSS + weather station"}]}]}
 
     bus = InMemoryBus()
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
     validator = SchemaValidator(find_schemas())
-    platform = Platform(store, bus, validator, available_types={"modbus"})
+    secrets_dir = tmp / "secrets"
+    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp"}, secrets_dir=secrets_dir)
     await platform.start()
-    agent = LocalAgent(bus, {"modbus": ModbusConnector}, validator, edge_id="edge-demo")
+    agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector}, validator,
+                       edge_id="edge-demo", secrets_dir=secrets_dir)
     await agent.start()
 
     existing = await store.run(store.get_source, SOURCE)
@@ -256,6 +353,10 @@ async def main() -> int:
         await agent.stop()
         sim_task.cancel()
         pump_task.cancel()
+        trap_task.cancel()
+        udp_task.cancel()
+        switch.stop()
+        ups.stop()
         await sim.stop()
         await pump.stop()
         await platform.stop()

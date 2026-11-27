@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import abc
+import os
+import pathlib
 from typing import Any, Protocol
 
 from .core import ConnectorError, PointTable
@@ -40,6 +42,15 @@ class Connector(abc.ABC):
     type: str = ""            # must equal manifest type
     version: str = "0.0.0"    # must equal manifest version
     capabilities = {"browse": False, "read_now": False}
+    secrets_dir: pathlib.Path | None = None   # set by the Runtime (OPCARE_SECRETS_DIR) or the edge agent
+
+    def secret(self, ref: str) -> str:
+        """Read a *_ref secret file (spec section 3). Raises ConnectorError SECRET_MISSING."""
+        base = self.secrets_dir or pathlib.Path(os.environ.get("OPCARE_SECRETS_DIR", "/run/secrets"))
+        try:
+            return (pathlib.Path(base) / ref).read_text().strip()
+        except OSError:
+            raise ConnectorError("SECRET_MISSING", f"secret '{ref}' is missing or unreadable") from None
 
     def device_of(self, address: dict) -> str:
         """Which device a point address belongs to. Default: address['device'] or 'main'."""

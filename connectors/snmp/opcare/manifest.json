@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "snmp",
+  "name": "SNMP manager (v1, v2c, v3) for IT and network equipment",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["poll"], "browse": true, "read_now": true, "device_timestamps": false, "tls": false },
+  "limits": { "max_points": 5000, "min_scan_ms": 1000 }
+}

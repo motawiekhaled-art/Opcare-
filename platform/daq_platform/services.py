@@ -10,6 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import pathlib
+import re
 import uuid
 from typing import Any, Callable
 
@@ -53,8 +56,11 @@ class LiveHub:
 
 class Platform:
     def __init__(self, store: Store, bus, validator: Callable[[str, dict], list[str]],
-                 available_types: set[str] | None = None):
-        """available_types: connector types that can run (installed); None = do not restrict."""
+                 available_types: set[str] | None = None, secrets_dir: str | pathlib.Path | None = None):
+        """available_types: connector types that can run (installed); None = do not restrict.
+        secrets_dir: where device passwords (*_ref files, spec section 3) are kept for the edge agent on this
+        node. None = secrets are managed on the edge nodes themselves (the API then refuses to store them)."""
+        self.secrets_dir = pathlib.Path(secrets_dir) if secrets_dir else None
         self.store, self.bus, self.validate = store, bus, validator
         self.available_types = available_types
         self.hub = LiveHub()
@@ -165,6 +171,11 @@ class Platform:
         if self.available_types is not None and doc["type"] not in self.available_types:
             raise ApiError(422, "CONNECTOR_UNAVAILABLE",
                            f"no {doc['type']} connector is installed yet; available: {sorted(self.available_types)}")
+        if self.secrets_dir is not None:
+            missing = [f"{path}: secret '{ref}' is not stored yet — enter the password again"
+                       for path, ref in _secret_refs(doc) if not (self.secrets_dir / ref).is_file()]
+            if missing:
+                raise ApiError(422, "CFG_INVALID", "configuration is not valid", missing)
         owners = {t["tag_id"]: t["source_id"] for t in await self.store.run(self.store.list_tags)}
         taken = [p["tag_id"] for p in doc["points"] if owners.get(p["tag_id"], sid) != sid]
         if taken:
@@ -204,6 +215,37 @@ class Platform:
         return await self._relay(doc["site"], "edge-agent", "test_connection", {"config": doc}, user, timeout_ms,
                                  who="the edge agent")
 
+    async def browse_unsaved(self, body: dict, user: str, create: bool, source_id: str | None = None,
+                             timeout_ms: int = 20000) -> dict:
+        """'Browse' / 'Listen' before saving (UDP senders, SNMP walk): the site's edge agent does it."""
+        if not isinstance(body, dict) or not isinstance(body.get("config"), dict):
+            raise ApiError(400, "BAD_REQUEST", "body must be {config, path?, listen_s?, max_items?, depth?}")
+        doc = await self.check_source(body["config"], create, source_id)
+        args = {k: body[k] for k in ("path", "listen_s", "max_items", "depth") if k in body}
+        return await self._relay(doc["site"], "edge-agent", "browse", {**args, "config": doc}, user, timeout_ms,
+                                 who="the edge agent")
+
+    # ------------------------------------------------------------ secrets (device passwords, communities)
+    def store_secret(self, name: str, value: str) -> None:
+        if self.secrets_dir is None:
+            raise ApiError(501, "NOT_SUPPORTED", "secrets are managed on the edge nodes of this installation")
+        if not SECRET_NAME.fullmatch(name or "") or name in RESERVED_SECRETS:
+            raise ApiError(400, "BAD_REQUEST", "secret name: 1-128 letters, digits, dot, dash or underscore")
+        if not isinstance(value, str) or not value or len(value) > 4096:
+            raise ApiError(400, "BAD_REQUEST", "value must be text of 1 to 4096 characters")
+        self.secrets_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.secrets_dir / f".{name}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(value)
+        os.replace(tmp, self.secrets_dir / name)
+
+    def secret_names(self) -> list[str]:
+        if self.secrets_dir is None or not self.secrets_dir.is_dir():
+            return []
+        return sorted(p.name for p in self.secrets_dir.iterdir()
+                      if p.is_file() and not p.name.startswith(".") and p.name not in RESERVED_SECRETS)
+
     async def _relay(self, site: str, component: str, op: str, args: dict, user: str, timeout_ms: int,
                      who: str | None = None) -> dict:
         rid = str(uuid.uuid4())
@@ -218,6 +260,26 @@ class Platform:
             raise ApiError(504, "TIMEOUT", f"{who or 'connector ' + component} did not answer (offline?)") from exc
         finally:
             self._pending.pop(rid, None)
+
+
+SECRET_NAME = re.compile(r"[A-Za-z0-9._-]{1,128}")
+RESERVED_SECRETS = {"mqtt_password"}
+
+
+def _secret_refs(obj, path: str = "") -> list[tuple[str, str]]:
+    """(json path, secret name) of every *_ref field."""
+    out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            p = f"{path}/{k}" if path else k
+            if k.endswith("_ref") and isinstance(v, str):
+                out.append((p, v))
+            else:
+                out += _secret_refs(v, p)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            out += _secret_refs(v, f"{path}/{i}")
+    return out
 
 
 def _iso_now() -> str:

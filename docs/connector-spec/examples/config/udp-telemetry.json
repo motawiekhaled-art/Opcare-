@@ -1,0 +1,112 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ps-west",
+  "source_id": "udp-site-sensors",
+  "type": "udp",
+  "name": "Weather station and GNSS on UDP 5514",
+  "enabled": true,
+  "connection": {
+    "bind_port": 5514,
+    "senders": [
+      {
+        "id": "gnss",
+        "host": "10.30.0.21",
+        "name": "GNSS receiver"
+      },
+      {
+        "id": "weather",
+        "host": "10.30.0.22",
+        "name": "Weather station"
+      },
+      {
+        "id": "core-switches",
+        "host": "10.30.1.0/24",
+        "name": "Core switches (syslog)"
+      }
+    ],
+    "silence_timeout_s": 30,
+    "syslog": {
+      "min_severity": "warning"
+    }
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "ps-west.gnss.latitude",
+      "address": {
+        "device": "gnss",
+        "format": "nmea",
+        "sentence": "RMC",
+        "field": 3,
+        "coordinate": true
+      },
+      "data_type": "float",
+      "unit": "deg"
+    },
+    {
+      "tag_id": "ps-west.gnss.speed",
+      "address": {
+        "device": "gnss",
+        "format": "nmea",
+        "sentence": "RMC",
+        "field": 7
+      },
+      "data_type": "float",
+      "unit": "m/s",
+      "scaling": {
+        "gain": 0.514444,
+        "offset": 0
+      }
+    },
+    {
+      "tag_id": "ps-west.weather.wind-speed",
+      "address": {
+        "device": "weather",
+        "format": "json",
+        "value_pointer": "/wind/speed",
+        "timestamp_pointer": "/ts",
+        "timestamp_format": "epoch_ms"
+      },
+      "data_type": "float",
+      "unit": "m/s"
+    },
+    {
+      "tag_id": "ps-west.weather.air-temp",
+      "address": {
+        "device": "weather",
+        "format": "delimited",
+        "prefix": "WX,",
+        "field": 2
+      },
+      "data_type": "float",
+      "unit": "degC"
+    },
+    {
+      "tag_id": "ps-west.plc.line-speed",
+      "address": {
+        "device": "weather",
+        "format": "binary",
+        "prefix_hex": "5354",
+        "offset": 4,
+        "encoding": "float32"
+      },
+      "data_type": "float"
+    },
+    {
+      "tag_id": "ps-west.core.last-syslog-severity",
+      "address": {
+        "device": "core-switches",
+        "format": "syslog",
+        "field": "severity"
+      },
+      "data_type": "int"
+    }
+  ]
+}

@@ -27,11 +27,14 @@ AGENT_ID = "edge-agent"
 
 class LocalAgent:
     def __init__(self, bus, connectors: dict[str, Callable[[], object]], validator: SchemaValidator,
-                 site: str = "+", edge_id: str = "edge-local", log_level: str = "warn"):
-        """bus: InMemoryBus-like (publish/subscribe/client). connectors: {type: factory}."""
+                 site: str = "+", edge_id: str = "edge-local", log_level: str = "warn",
+                 secrets_dir: str | pathlib.Path | None = None):
+        """bus: InMemoryBus-like (publish/subscribe/client). connectors: {type: factory}.
+        secrets_dir: OPCARE_SECRETS_DIR given to every connector (device passwords); default a private temp dir."""
         self.bus, self.factories, self.validate = bus, connectors, validator
         self.site, self.edge_id, self.log_level = site, edge_id, log_level
-        self.secrets = pathlib.Path(tempfile.mkdtemp(prefix="opcare-agent-"))
+        self.secrets = pathlib.Path(secrets_dir) if secrets_dir else pathlib.Path(tempfile.mkdtemp(prefix="opcare-agent-"))
+        self.secrets.mkdir(parents=True, exist_ok=True)
         (self.secrets / "mqtt_password").write_text("local")
         self.running: dict[tuple[str, str], tuple[Runtime, asyncio.Task]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -117,8 +120,9 @@ class LocalAgent:
         try:
             if op == "ping":
                 result = {"types": sorted(self.factories), "running": len(self.running)}
-            elif op == "test_connection":
-                result = await asyncio.wait_for(self._probe(req.get("args", {}).get("config")),
+            elif op in ("test_connection", "browse"):
+                args = req.get("args") or {}
+                result = await asyncio.wait_for(self._probe(args.get("config"), op, args),
                                                 max(req.get("timeout_ms", 10000) / 1000 - 0.2, 0.5))
             else:
                 raise ConnectorError("OP_UNSUPPORTED", f"agent operation '{op}' is not supported")
@@ -132,15 +136,23 @@ class LocalAgent:
             res.update(ok=False, error={"code": "INTERNAL", "message": str(exc)[:300]})
         self.bus.publish(f"opcare/v1/{site}/admin/{AGENT_ID}/res", json.dumps(res))
 
-    async def _probe(self, cfg: dict | None) -> dict:
+    async def _probe(self, cfg: dict | None, op: str = "test_connection", args: dict | None = None) -> dict:
         if not isinstance(cfg, dict) or cfg.get("type") not in self.factories:
             raise ConnectorError("OP_UNSUPPORTED", f"no connector available for type {cfg and cfg.get('type')}")
         errors = self.validate(f"protocols/{cfg['type']}.config.schema.json", cfg)
         connector = self.factories[cfg["type"]]()
+        connector.secrets_dir = self.secrets
         if not errors:
             errors = await connector.validate(cfg)
         if errors:
             raise ConnectorError("CFG_INVALID", "; ".join(errors)[:1000])
+        running = self.running.get((cfg["site"], cfg["source_id"]))
+        if running and running[0].running and running[0].c.type == cfg["type"]:
+            connector = running[0].c        # the saved source runs: reuse it (a UDP port or serial line opens once)
+        if op == "browse":
+            if not getattr(connector, "capabilities", {}).get("browse"):
+                raise ConnectorError("OP_UNSUPPORTED", f"the {cfg['type']} connector cannot browse")
+            return await connector.browse({**(args or {}), "config": cfg})
         return await connector.test_connection(cfg)       # opens its own short-lived connection
 
 

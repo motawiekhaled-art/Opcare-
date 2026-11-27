@@ -314,5 +314,9 @@ ALLOW = {
                                                         "BufTm", "OptFlds", "EntryID")}),
     # dnp3: function codes; FC2 only for clearing IIN1.7 (request name 'FC2_CLEAR_RESTART')
     "dnp3": frozenset({"FC0", "FC1", "FC20", "FC21", "FC2_CLEAR_RESTART"}),
+    # udp: receive-only listener; nothing may ever be sent (spec 15.8)
+    "udp": frozenset(),
+    # snmp: reads only; "Response(Inform)" is the acknowledgement of a received InformRequest (spec 15.9)
+    "snmp": frozenset({"GetRequest", "GetNextRequest", "GetBulkRequest", "Response(Inform)"}),
     # iec104 is a GPL connector and implements its own guard: U/S frames + type ids 100, 101, 102
 }

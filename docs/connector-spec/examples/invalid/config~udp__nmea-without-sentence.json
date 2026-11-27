@@ -1,0 +1,36 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ps-west",
+  "source_id": "udp-x",
+  "type": "udp",
+  "name": "x",
+  "enabled": true,
+  "connection": {
+    "bind_port": 5514,
+    "senders": [
+      {
+        "id": "a",
+        "host": "10.0.0.1"
+      }
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "x.y",
+      "address": {
+        "device": "a",
+        "format": "nmea",
+        "field": 3
+      },
+      "data_type": "float"
+    }
+  ]
+}

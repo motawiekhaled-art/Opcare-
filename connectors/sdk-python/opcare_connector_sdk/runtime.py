@@ -169,6 +169,7 @@ class Runtime:
                  validator: Callable[[str, dict], list[str]] | None = None, log: JsonLog | None = None):
         self.c = connector
         self.env = env or Env()
+        self.c.secrets_dir = self.env.secrets_dir
         self.log = log or JsonLog(self.env.source_id, self.env.log_level)
         self.boot = str(uuid.uuid4())
         self.log.boot = self.boot

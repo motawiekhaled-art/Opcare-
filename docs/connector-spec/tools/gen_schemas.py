@@ -56,7 +56,7 @@ ERROR_CODES = ["CFG_INVALID", "CFG_UNSUPPORTED_SPEC", "SECRET_MISSING", "CONN_RE
                "CONN_CLOSED", "TLS_FAILED", "AUTH_FAILED", "ADDR_INVALID", "POINT_NOT_FOUND", "TYPE_MISMATCH",
                "DEVICE_BUSY", "OP_UNSUPPORTED", "OP_FORBIDDEN", "TIMEOUT", "PROTOCOL_ERROR", "INTERNAL"]
 QUALITY = [192, 216, 64, 68, 80, 84, 0, 4, 12, 24, 28]
-TYPES = ["modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera"]
+TYPES = ["modbus", "opcua", "mqtt", "iec61850", "iec104", "dnp3", "camera", "udp", "snmp"]
 
 # ---------------------------------------------------------------- common
 common = {
@@ -219,7 +219,7 @@ write("admin-request.schema.json", {
             {"if": {"properties": {"op": {"const": "browse"}}},
              "then": {"properties": {"args": obj({
                  "path": {"type": "string"}, "depth": integer(1, 3, 1), "max_items": integer(1, 5000, 500),
-                 "cursor": {"type": "string"}, "listen_s": integer(1, 60)})}}},
+                 "cursor": {"type": "string"}, "listen_s": integer(1, 60), "config": {"type": "object"}})}}},
             {"if": {"properties": {"op": {"const": "read_now"}}},
              "then": {"properties": {"args": obj({
                  "tag_ids": {"type": "array", "items": ref("tagId"), "maxItems": 100},
@@ -428,5 +428,92 @@ protocol("camera", "IP camera (ONVIF / RTSP) configuration",
           ["metric"]),
          conn_rules=[{"if": {"properties": {"onvif": {"const": False}}}, "then": {"required": ["rtsp_url"]}}],
          addr_rules=[{"if": {"properties": {"metric": {"const": "onvif_event"}}}, "then": {"required": ["topic"]}}])
+
+DEVICE_ID = {"type": "string", "pattern": r"^[a-z0-9][a-z0-9-]{0,62}$"}
+IP_OR_CIDR = {"type": "string", "minLength": 2, "maxLength": 64,
+              "pattern": r"^([0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(/[0-9]{1,3})?)$"}
+SEVERITIES = ["emergency", "alert", "critical", "error", "warning", "notice", "info", "debug"]
+POINTER = {"type": "string", "pattern": r"^(/[^/]*)*$"}
+
+protocol("udp", "UDP datagram listener configuration",
+         ({"bind_host": {"type": "string", "default": "0.0.0.0", "maxLength": 64},
+           "bind_port": P("port"),
+           "senders": {"type": "array", "minItems": 1, "maxItems": 500, "items": obj(
+               {"id": DEVICE_ID, "host": IP_OR_CIDR, "name": {"type": "string", "maxLength": 100}}, ["id", "host"])},
+           "silence_timeout_s": integer(0, 86400, 60),
+           "max_datagram_bytes": integer(64, 65507, 8192),
+           "text_encoding": enum(["utf-8", "ascii", "latin-1"], "utf-8"),
+           "syslog": obj({"min_severity": enum(SEVERITIES, "warning")})},
+          ["bind_port", "senders"]),
+         ({"device": {"type": "string"},
+           "format": enum(["json", "delimited", "nmea", "binary", "raw", "syslog"]),
+           "prefix": {"type": "string", "minLength": 1, "maxLength": 64},
+           "prefix_hex": {"type": "string", "pattern": r"^([0-9a-fA-F]{2}){1,32}$"},
+           "value_pointer": POINTER, "timestamp_pointer": POINTER,
+           "timestamp_format": enum(["rfc3339", "epoch_ms", "epoch_s"]),
+           "match_pointer": POINTER, "match_value": {"type": "string", "maxLength": 200},
+           "delimiter": {"type": "string", "minLength": 1, "maxLength": 4, "default": ","},
+           "field": {"oneOf": [integer(0, 1000),
+                               enum(["severity", "facility", "message", "app_name", "hostname"])]},
+           "sentence": {"type": "string", "pattern": r"^[A-Z0-9]{3,5}$"},
+           "coordinate": {"type": "boolean", "default": False},
+           "offset": integer(0, 65506),
+           "encoding": enum(["bool", "bit", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
+                             "float32", "float64", "string"]),
+           "byte_order": enum(["big", "little"], "big"),
+           "bit": integer(0, 7), "length": integer(1, 1024),
+           "match": {"type": "string", "minLength": 1, "maxLength": 200}},
+          ["device", "format"]),
+         addr_rules=[
+             {"if": {"properties": {"format": {"const": "json"}}},
+              "then": {"required": ["value_pointer"],
+                       "dependentRequired": {"match_pointer": ["match_value"], "match_value": ["match_pointer"]}}},
+             {"if": {"properties": {"format": {"const": "delimited"}}},
+              "then": {"required": ["field"], "properties": {"field": {"type": "integer"}}}},
+             {"if": {"properties": {"format": {"const": "nmea"}}},
+              "then": {"required": ["sentence", "field"], "properties": {"field": integer(1, 100)}}},
+             {"if": {"properties": {"format": {"const": "binary"}}},
+              "then": {"required": ["offset", "encoding"]}},
+             {"if": {"properties": {"format": {"const": "syslog"}}},
+              "then": {"required": ["field"], "properties": {"field": {"type": "string"}}}},
+             {"if": {"properties": {"encoding": {"const": "bit"}}, "required": ["encoding"]},
+              "then": {"required": ["bit"]}},
+             {"if": {"properties": {"encoding": {"const": "string"}}, "required": ["encoding"]},
+              "then": {"required": ["length"]}}])
+
+protocol("snmp", "SNMP manager configuration",
+         ({"version": enum(["1", "2c", "3"], "2c"),
+           "port": {**P("port"), "default": 161},
+           "community_ref": SECRET,
+           "v3": obj({"username": {"type": "string", "minLength": 1, "maxLength": 32},
+                      "security_level": enum(["noAuthNoPriv", "authNoPriv", "authPriv"], "authPriv"),
+                      "auth_protocol": enum(["MD5", "SHA", "SHA-224", "SHA-256", "SHA-384", "SHA-512"], "SHA-256"),
+                      "auth_password_ref": SECRET,
+                      "priv_protocol": enum(["AES"], "AES"),
+                      "priv_password_ref": SECRET,
+                      "context_name": {"type": "string", "maxLength": 32, "default": ""}},
+                     ["username"],
+                     allOf=[{"if": {"not": {"properties": {"security_level": {"const": "noAuthNoPriv"}},
+                                            "required": ["security_level"]}},
+                             "then": {"required": ["auth_password_ref"]}},
+                            {"if": {"not": {"properties": {"security_level": {"enum": ["noAuthNoPriv", "authNoPriv"]}},
+                                            "required": ["security_level"]}},
+                             "then": {"required": ["priv_password_ref"]}}]),
+           "devices": {"type": "array", "minItems": 1, "maxItems": 500, "items": obj(
+               {"id": DEVICE_ID, "host": P("host"), "port": P("port"),
+                "name": {"type": "string", "maxLength": 100}}, ["id", "host"])},
+           "max_oids_per_request": integer(1, 100, 20),
+           "max_repetitions": integer(1, 100, 25),
+           "retries": integer(0, 5, 1),
+           "traps": obj({"bind_host": {"type": "string", "default": "0.0.0.0", "maxLength": 64},
+                         "bind_port": P("port"), "community_ref": SECRET}, ["bind_port"])},
+          ["version", "devices"]),
+         ({"device": {"type": "string"},
+           "oid": {"type": "string", "maxLength": 300, "pattern": r"^\.?[0-2](\.(0|[1-9][0-9]{0,9}))+$"},
+           "transform": enum(["none", "rate"], "none")},
+          ["device", "oid"]),
+         conn_rules=[
+             {"if": {"properties": {"version": {"enum": ["1", "2c"]}}}, "then": {"required": ["community_ref"]}},
+             {"if": {"properties": {"version": {"const": "3"}}}, "then": {"required": ["v3"]}}])
 
 print("schemas written to", ROOT)

@@ -7,7 +7,7 @@ Put this folder in the main repository at `docs/connector-spec/` (schemas also g
 |---|---|
 | `CONNECTOR_SPEC.md` | The rulebook (normative). Read sections 0–14 once, then your protocol's profile in section 15 |
 | `schemas/` | JSON Schema 2020-12 for every MQTT message, the manifest and the configuration envelope |
-| `schemas/protocols/` | Configuration schema per connector type: modbus, opcua, mqtt, iec61850, iec104, dnp3, camera |
+| `schemas/protocols/` | Configuration schema per connector type: modbus, opcua, mqtt, iec61850, iec104, dnp3, camera, udp, snmp |
 | `asyncapi.yaml` | AsyncAPI 3.0 description of the six MQTT topics |
 | `examples/` | Valid example messages for every schema, plus `examples/invalid/` negative tests that must be rejected |
 | `tools/gen_schemas.py` | Source of the schemas: edit this, then regenerate (do not hand-edit the JSON) |

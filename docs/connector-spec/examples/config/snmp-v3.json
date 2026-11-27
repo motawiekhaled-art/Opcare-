@@ -1,0 +1,43 @@
+{
+  "spec": "1.0",
+  "revision": 1,
+  "site": "ps-west",
+  "source_id": "snmp-firewall",
+  "type": "snmp",
+  "name": "Perimeter firewall",
+  "enabled": true,
+  "connection": {
+    "version": "3",
+    "v3": {
+      "username": "opcare-ro",
+      "security_level": "authPriv",
+      "auth_protocol": "SHA-256",
+      "auth_password_ref": "fw-auth",
+      "priv_protocol": "AES",
+      "priv_password_ref": "fw-priv"
+    },
+    "devices": [
+      {
+        "id": "fw-1",
+        "host": "10.30.0.1"
+      }
+    ]
+  },
+  "acquisition": {
+    "default_scan_ms": 1000,
+    "batch_max_values": 500,
+    "batch_max_ms": 1000,
+    "integrity_s": 900,
+    "request_timeout_ms": 3000
+  },
+  "points": [
+    {
+      "tag_id": "ps-west.net.fw-1.name",
+      "address": {
+        "device": "fw-1",
+        "oid": "1.3.6.1.2.1.1.5.0"
+      },
+      "data_type": "string"
+    }
+  ]
+}

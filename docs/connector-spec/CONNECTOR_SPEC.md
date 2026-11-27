@@ -3,7 +3,7 @@
 | Item | Value |
 |---|---|
 | Document | OSS-DAQ-CON-001 |
-| Spec version | **1.0.0-draft.1** (`"spec": "1.0"` in messages) |
+| Spec version | **1.0.0-draft.2** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9) |
 | Date | 3 November 2026 |
 | Parent documents | MVP Scope OSS-DAQ-MVP-001 v0.2 · Architecture OSS-DAQ-ARC-001 v0.1 (section 7) |
 | Status | Draft for engineering review |
@@ -57,7 +57,7 @@ Where this text and a schema disagree, **the schema wins** and the text must be 
 3. The container **MUST** run as a non-root user (UID `10001`), **MUST** work with a read-only root file system, and **MAY** write only to:
    - `/data` (persistent, per source; at most 100 MB)
    - `/tmp` (tmpfs)
-4. The container **MUST NOT** open listening ports. All communication is outbound to the local broker and to field devices.
+4. The container **MUST NOT** open listening ports. All communication is outbound to the local broker and to field devices. **Exception — listener connectors:** `udp` (section 15.8) and `snmp` with traps enabled (section 15.9) **MAY** bind the one UDP port named in their configuration, and no other. They **MUST** drop every datagram whose source address is not in their configuration (counted in diagnostics, never published). Ports below 1024 (e.g. syslog 514, SNMP traps 162) cannot be bound by the non-root user: the connector binds a port ≥ 1024 and the edge agent maps the standard port to it (e.g. `-p 514:5514/udp`).
 5. **One container runs exactly one source.** Scaling is done by running more containers.
 6. The image **MUST** carry OCI labels `org.opencontainers.image.version` and `org.opencontainers.image.licenses` (SPDX expression).
 7. **GPL rule.** A connector that links GPL code (today: `iec104` with lib60870) **MUST** live in its own repository with its own licence file, **MUST** depend on the platform only through this specification (MQTT messages), and **MUST NOT** import any code from the closed platform repositories, including `sdk-python`. Such a connector implements the generic behaviour of this spec itself (the C SDK is released with it under GPL).
@@ -393,7 +393,7 @@ The platform sends requests to `admin/{id}/req`; the connector answers on `admin
 | `ping` | none | `{ "version", "state" }` | MUST |
 | `get_diagnostics` | none | Free-form object: connection details, counters, last errors per device | MUST |
 | `test_connection` | `{ "config"?: <config document> }` | `{ "devices": [ { "id", "ok", "latency_ms", "error"? , "info"? } ] }`. If `config` is given, test **that** configuration on a separate connection without applying it | MUST |
-| `browse` | `{ "path"?, "depth"? (default 1, max 3), "max_items"? (default 500), "cursor"? , "listen_s"? }` | `{ "items": [ { "path", "name", "kind": "folder"\|"object"\|"variable", "has_children", "data_type"?, "address"? } ] }` where `address` is ready to paste into a point | MUST if `capabilities.browse` |
+| `browse` | `{ "path"?, "depth"? (default 1, max 3), "max_items"? (default 500), "cursor"? , "listen_s"?, "config"? }` — with `config`, browse using **that** configuration on a separate connection (the edge agent uses this before a source is saved) | `{ "items": [ { "path", "name", "kind": "folder"\|"object"\|"variable", "has_children", "data_type"?, "address"? } ] }` where `address` is ready to paste into a point | MUST if `capabilities.browse` |
 | `read_now` | `{ "tag_ids"?: [...], "addresses"?: [ {address, data_type} ] }` (max 100) | `{ "values": [ { "t"?, "address"?, "v", "q", "ts" } ] }` | MUST if `capabilities.read_now` |
 | `reload_config` | none | `{ "revision" }` — re-reads the retained configuration | MUST |
 
@@ -627,6 +627,85 @@ The camera connector registers cameras and watches their health. **It does not a
 **Browse**: `path` empty → WS-Discovery probe on the local network for `listen_s` (default 5) seconds, returns cameras found (address, manufacturer, model); `path` = camera host → its media profiles with resolution, codec and stream URI.
 
 **Allowed requests (ONVIF)**: GetSystemDateAndTime, GetCapabilities, GetServices, GetDeviceInformation, GetNetworkInterfaces, GetProfiles, GetStreamUri, GetSnapshotUri, GetVideoSources, GetEventProperties, CreatePullPointSubscription, PullMessages, Renew, Unsubscribe; WS-Discovery Probe; RTSP OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, GET_PARAMETER (keep-alive). **Forbidden**: every `Set*`, `Create*` other than the pull-point subscription, `Delete*`, PTZ operations (ContinuousMove, AbsoluteMove, GotoPreset, SetPreset…), SystemReboot, SetSystemFactoryDefault, firmware upgrade, relay outputs (SetRelayOutputState), RTSP ANNOUNCE/RECORD/SET_PARAMETER.
+
+### 15.8 UDP datagram listener — type `udp`
+
+For devices and applications that **push** values as UDP datagrams instead of being polled: GNSS/GPS receivers and marine instruments (NMEA 0183 over UDP), weather stations and environmental sensors (CSV or JSON telegrams), PLC send/receive telegrams (e.g. Siemens S7 `TSEND`/`TURCV`, Rockwell UDP messages, Beckhoff), vibration and condition-monitoring sensors, LiDAR/radar status, power-quality analysers and UPSs with UDP telemetry, and network devices sending **syslog** (RFC 5424 / RFC 3164 over UDP 514).
+
+The connector **only listens**. It never sends a datagram.
+
+**connection**
+
+| Field | Default | Notes |
+|---|---|---|
+| `bind_host` | `0.0.0.0` | Local address to listen on (`::` for IPv6) |
+| `bind_port` | — | UDP port to listen on, 1–65535. Use ≥ 1024 in containers (section 2 rule 4) |
+| `senders` | — | `[{id, host, name?}]`, at least one. `host` is an IP address or CIDR network (`10.20.1.0/24`). Datagrams from any other address are dropped |
+| `silence_timeout_s` | 60 | A sender silent this long is `unreachable`; its points get `q: 24` (rule 7.2.4). 0 = never |
+| `max_datagram_bytes` | 8192 | 64–65507. Longer datagrams are dropped and counted |
+| `text_encoding` | `utf-8` | `utf-8`, `ascii`, `latin-1` for text formats |
+| `syslog` | — | `{min_severity}` — when present, datagrams that parse as syslog become events `syslog.message` (section 10) when their severity is at or above `min_severity` (`emergency` … `debug`, default `warning`) |
+
+A sender is a **device** in the status message. It is `connected` while datagrams arrive from it.
+
+**address**: `{device, format, ...}` — `device` is the sender `id`. A datagram may contain several lines (CR/LF); text formats evaluate each line in order. Optional `prefix`: the line (or, for `binary`, the datagram as hex in `prefix_hex`) must start with it, otherwise the point ignores it.
+
+| `format` | Extra fields | Value taken from |
+|---|---|---|
+| `json` | `value_pointer` (required), `timestamp_pointer?`, `timestamp_format?` (`rfc3339`, `epoch_ms`, `epoch_s`), `match_pointer?` + `match_value?` | The JSON value at the RFC 6901 pointer. With `match_pointer`, only documents whose value there equals `match_value` (as text) are used — for streams that carry several sensors |
+| `delimited` | `field` (0-based, required), `delimiter` (`,`) | That field of the line (CSV, semicolon, tab or space separated telegrams) |
+| `nmea` | `sentence` (e.g. `RMC`, `GGA`, `MWV`, `XDR`; talker id ignored), `field` (1-based after the sentence id, required), `coordinate?` | That field. With `coordinate: true` the field is `ddmm.mmmm`/`dddmm.mmmm` and the next field the hemisphere: published as signed decimal degrees. A sentence whose checksum is wrong is ignored |
+| `binary` | `offset` (bytes, required), `encoding` (`bool`, `bit`, `int8`, `uint8`, `int16`, `uint16`, `int32`, `uint32`, `int64`, `uint64`, `float32`, `float64`, `string`), `byte_order` (`big`), `bit?` (0–7, for `bit`), `length?` (bytes, for `string`) | The bytes at `offset` |
+| `raw` | none | The whole line: a number, `true`/`false`, or text |
+| `syslog` | `field` (`severity`, `facility`, `message`, `app_name`, `hostname`), `match?` (regular expression on the message) | That syslog field (severity 0 = emergency … 7 = debug) |
+
+**Data mapping**: as section 8a; text fields convert to `float`/`int` when the point's `data_type` asks for a number.
+
+**Timestamps**: `json` with `timestamp_pointer` → `ts` from the document; otherwise `rx`.
+
+**Quality**: value parsed → 192 · a line or datagram that matches the point (prefix, sentence, match) but cannot be parsed, a missing field or pointer, or a datagram shorter than `offset` + width → `v: null, q: 0, f: ["PARSE_ERROR"]` · sender silent for `silence_timeout_s` → 24.
+
+**Acquisition**: event-driven (`modes: ["subscribe"]`); `default_scan_ms` is ignored. Report-by-exception, deadband and integrity refresh apply as usual (section 7.2).
+
+**test_connection**: listens on `bind_port` for `listen_s` (default 5, max 30 — taken from `request_timeout_ms` when larger) and reports, per sender, whether a datagram arrived. If the running source already listens on the same port, its live counters are used instead of a second socket. A port that cannot be bound → `CONN_REFUSED`.
+
+**Browse**: listens for `listen_s` seconds (default 10, max 60; the running socket when the source runs) and returns one item per sending address with the datagram count, a sample (first 256 bytes, text or hex) and the detected format (`json`, `nmea`, `delimited`, `syslog`, `binary`). Children (depth 2) are the values found in the sample — JSON leaves, NMEA sentence fields, delimited fields — each with an `address` ready to paste into a point.
+
+**Allowed requests**: **none**. The guard allow-list is empty: the connector receives only.
+
+### 15.9 SNMP manager — type `snmp`
+
+For IT and network equipment: switches, routers, firewalls, wireless controllers, servers (HOST-RESOURCES-MIB), storage, UPSs (UPS-MIB, RFC 1628), PDUs, environmental monitors, printers, and industrial Ethernet switches and gateways that expose SNMP. Typical points: interface status and traffic (IF-MIB), uptime, CPU and memory, temperatures, UPS battery charge, load and on-battery alarms.
+
+**connection**
+
+| Field | Default | Notes |
+|---|---|---|
+| `version` | `2c` | `1`, `2c` or `3` |
+| `port` | 161 | Agent port, for every device unless the device sets its own |
+| `community_ref` | — | Versions 1 and 2c: secret file holding the community string. The community is a password and **MUST NOT** be in the configuration |
+| `v3` | — | Version 3 (RFC 3414 USM): `{username, security_level, auth_protocol, auth_password_ref, priv_protocol, priv_password_ref, context_name ("")}`. `security_level`: `noAuthNoPriv`, `authNoPriv`, `authPriv` (default). `auth_protocol`: `MD5`, `SHA`, `SHA-224`, `SHA-256` (default), `SHA-384`, `SHA-512` (RFC 7860). `priv_protocol`: `AES` (AES-128-CFB, RFC 3826). DES is not supported |
+| `devices` | — | `[{id, host, port?, name?}]`, at least one. One agent per device; all share the credentials |
+| `max_oids_per_request` | 20 | 1–100 variable bindings per Get |
+| `max_repetitions` | 25 | 1–100, GetBulk size for browse |
+| `retries` | 1 | 0–5 retries after a timeout (`acquisition.request_timeout_ms` per attempt) |
+| `traps` | — | `{bind_host ("0.0.0.0"), bind_port, community_ref?}` — when present, receive SNMPv1/v2c traps and informs from the device hosts (section 2 rule 4). The trap community is `traps.community_ref`, else `community_ref` |
+
+**address**: `{device, oid, transform?}` — `oid` is the numeric object identifier with its instance, e.g. `1.3.6.1.2.1.2.2.1.8.3` (ifOperStatus of interface 3). The GUI offers MIB templates and browsing so users do not type OIDs. `transform`: `none` (default) or `rate` — for `Counter32`/`Counter64`: published value is the increase per second between two polls (wrap-aware; nothing is published after the first poll or after a counter discontinuity, i.e. the agent restarted).
+
+**Data mapping**: `INTEGER`, `Counter32`, `Gauge32`, `TimeTicks` (hundredths of a second — use scaling 0.01 for seconds), `Counter64`, `Unsigned32` → `int` (`float` with scaling or `rate`); `OCTET STRING` → `string` (UTF-8 when printable, else hex `0a:1b:…`), `OBJECT IDENTIFIER` and `IpAddress` → `string`. For `data_type: bool` an `INTEGER` 1 is `true` and any other value `false` (TruthValue, ifOperStatus up/down). `enum` → the integer.
+
+**Acquisition**: poll. Points of the same device and scan class are read with as few GetRequests as `max_oids_per_request` allows. A `tooBig` response halves the request; an SNMPv1 `noSuchName` or `badValue` error splits the request so that a missing OID only affects its own point (as Modbus, 15.1).
+
+**Quality**: value → 192 · `noSuchObject`, `noSuchInstance`, `endOfMibView`, v1 `noSuchName`, or a type that does not fit `data_type` → 4 · `genErr` → 12 · no response after `retries` → 24 (device `unreachable`, `CONN_TIMEOUT`) · v3 report `usmStatsUnknownUserNames`, `usmStatsWrongDigests`, `usmStatsDecryptionErrors`, `usmStatsUnsupportedSecLevels` → 24 with device error `AUTH_FAILED` · `usmStatsNotInTimeWindows` → re-synchronise engine time once, then retry.
+
+**Timestamps**: `rx`.
+
+**Traps**: each accepted trap or inform becomes event `snmp.trap` (`device` = sending device, `attrs`: `trap_oid`, `uptime`, up to 20 `varbinds` as text). Severity `medium` for linkDown and authenticationFailure, `info` otherwise. v1 traps are converted to v2 trap OIDs (RFC 3584). A trap from an unknown address or with the wrong community is dropped and counted. SNMPv3 traps are not supported in spec 1.0.
+
+**Browse**: `path` = `device-id` or `device-id/oid` (default subtree `1.3.6.1.2.1`, MIB-2). Walks with GetNext (v1) or GetBulk (v2c, v3), paced, at most `max_items`. When the subtree has more, the result carries `next_path` (`device-id/oid>last-oid`): browse again with that `path` to continue after the last OID. Items are variables with `name` (OID), `data_type` and a sample value in `info`, and `address: {device, oid}`.
+
+**Allowed requests**: **GetRequest, GetNextRequest, GetBulkRequest**, and **Response only as the acknowledgement of a received InformRequest**. **Forbidden**: SetRequest (not implemented at all), sending traps or informs.
 
 ## 16. Conformance kit
 
