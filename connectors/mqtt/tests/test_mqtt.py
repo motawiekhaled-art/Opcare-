@@ -174,7 +174,7 @@ def test_auth_test_connection_browse_and_validation():
         res = (await conn.test_connection(good))["devices"][0]
         assert res["ok"] is False and res["error"]["code"] == "AUTH_FAILED"
         res = (await conn.test_connection(cfg(free_port())))["devices"][0]
-        assert res["error"]["code"] == "CONN_REFUSED"
+        assert res["error"]["code"] in ("CONN_REFUSED", "CONN_TIMEOUT")       # Windows times out on closed ports
         (conn.secrets_dir / "broker-pw").write_text("broker-secret")
 
         async def chatter():
