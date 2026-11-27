@@ -238,6 +238,7 @@ input.invalid { border-color: var(--bad); background: var(--bad-bg); }
 .toolbar .sep { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .toolbar select, .toolbar input { padding: 6px 8px; }
 label.check { display: inline-flex; gap: 6px; align-items: center; font-weight: 400; }
+label.check input[type=checkbox] { width: 16px; height: 16px; min-width: 16px; padding: 0; margin: 0; flex: none; }
 label.check.small { font-size: 12px; white-space: nowrap; }
 .small { font-size: 12px; }
 .browse { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--card); }
