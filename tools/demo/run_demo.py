@@ -35,7 +35,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp", "connectors/mqtt",
-          "connectors/opcua", "connectors/dnp3", "tools/simulators"):
+          "connectors/opcua", "connectors/dnp3", "connectors/iec61850", "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
@@ -57,6 +57,8 @@ from snmp_connector.messages import UsmUser  # noqa: E402
 from snmp_sim import SnmpAgent, standard_mib, ups_mib  # noqa: E402
 from udp_connector import UdpConnector  # noqa: E402
 from dnp3_connector import Dnp3Connector  # noqa: E402
+from iec61850_connector import Iec61850Connector  # noqa: E402
+from iec61850_server import Iec61850Server  # noqa: E402
 from dnp3_outstation import Dnp3Outstation  # noqa: E402
 from opcua_connector import OpcUaConnector  # noqa: E402
 from opcua_server import OpcUaServer  # noqa: E402
@@ -249,6 +251,51 @@ FEEDER_RTU = {"analog_input": [("Ia", 182.0), ("Ib", 179.5), ("Ic", 184.2), ("Va
               "binary_input": ["Trip", "EarthFault", "SF6Low", "LocalMode"],
               "double_bit_binary_input": ["CB", "Isolator"],
               "counter": [("kWhImport", 8_412_650), ("CBOperations", 1_284)]}
+
+
+RELAY_SCL = ROOT / "tools" / "simulators" / "scl" / "feeder_relay.icd"
+
+
+def feeder_relay(port: int) -> Iec61850Server:
+    """Feeder 21 protection relay (IEC 61850 IED FDR21): measurements, breaker, overcurrent protection, two reports."""
+    srv = Iec61850Server(RELAY_SCL, port=port)
+    for name, v in (("TotW", 3.2), ("TotVAr", 0.9), ("Hz", 50.0)):
+        srv.set(f"FDR21LD0/MMXU1.{name}.mag.f", "MX", v)
+    for ph, v in (("phsA", 182.0), ("phsB", 179.6), ("phsC", 184.1)):
+        srv.set(f"FDR21LD0/MMXU1.A.{ph}.cVal.mag.f", "MX", v)
+        srv.set(f"FDR21LD0/MMXU1.PhV.{ph}.cVal.mag.f", "MX", 6.35)
+    srv.set("FDR21LD0/XCBR1.Pos.stVal", "ST", [True, False])                  # closed (on)
+    srv.set("FDR21LD0/XCBR1.OpCnt.stVal", "ST", 842)
+    return srv
+
+
+async def drive_relay(srv: Iec61850Server) -> None:
+    """Load follows a curve; every 4 minutes an overcurrent pick-up, trip and breaker open, reclosed 15 s later."""
+    t0, ops = time.time(), 842
+    while True:
+        await asyncio.sleep(1)
+        t = time.time() - t0
+        ph = t % 240
+        fault, tripped = 150 <= ph < 152, 151 <= ph < 166
+        load = 0.0 if tripped else 1 + 0.1 * math.sin(t / 80)
+        srv.set("FDR21LD0/PTOC1.Str.general", "ST", fault)
+        srv.set("FDR21LD0/PTOC1.Op.general", "ST", 151 <= ph < 152)
+        pos = srv.get("FDR21LD0/XCBR1.Pos.stVal", "ST").bits
+        if tripped and pos == [True, False]:
+            srv.set("FDR21LD0/XCBR1.Pos.stVal", "ST", [False, True])
+            ops += 1
+            srv.set("FDR21LD0/XCBR1.OpCnt.stVal", "ST", ops)
+        elif not tripped and pos == [False, True]:
+            srv.set("FDR21LD0/XCBR1.Pos.stVal", "ST", [True, False])
+            ops += 1
+            srv.set("FDR21LD0/XCBR1.OpCnt.stVal", "ST", ops)
+        srv.set("FDR21LD0/MMXU1.TotW.mag.f", "MX", round(3.2 * load + random.uniform(-0.01, 0.01), 3))
+        srv.set("FDR21LD0/MMXU1.TotVAr.mag.f", "MX", round(0.9 * load + random.uniform(-0.01, 0.01), 3))
+        srv.set("FDR21LD0/MMXU1.Hz.mag.f", "MX", round(50 + random.uniform(-0.02, 0.02), 3))
+        for phs, base in (("phsA", 182.0), ("phsB", 179.6), ("phsC", 184.1)):
+            amps = (base * 9 if fault else base * load) + random.uniform(-0.5, 0.5)
+            srv.set(f"FDR21LD0/MMXU1.A.{phs}.cVal.mag.f", "MX", round(max(amps, 0.0), 1))
+            srv.set(f"FDR21LD0/MMXU1.PhV.{phs}.cVal.mag.f", "MX", round(6.35 + random.uniform(-0.02, 0.02) + (-0.8 if fault else 0), 3))
 
 
 def feeder_rtu(port: int) -> Dnp3Outstation:
@@ -494,6 +541,9 @@ async def main() -> int:
     solar = SolarEdgeNode(broker)
     broker.on_subscribe = lambda f: solar.births() if f.startswith(("spBv1.0", "#")) else None   # as on reconnect of a host
     mqtt_tasks = [asyncio.create_task(solar.run()), asyncio.create_task(drive_water_meters(broker))]
+    relay = feeder_relay(pick_port("127.0.0.1", 10102))
+    await relay.start()
+    relay_task = asyncio.create_task(drive_relay(relay))
     rtu = feeder_rtu(pick_port("127.0.0.1", 20010))
     await rtu.start()
     rtu_task = asyncio.create_task(drive_feeder(rtu))
@@ -511,6 +561,8 @@ async def main() -> int:
                      {"id": "ups-1", "host": "127.0.0.1", "port": ups_port, "name": "UPS 10 kVA"}]},
         {"type": "mqtt", "name": "Water meters and solar plant (MQTT broker)", "broker_url": f"mqtt://127.0.0.1:{broker_port}",
          "subscriptions": [{"topic_filter": "meters/+/telemetry", "qos": 1}, {"topic_filter": "spBv1.0/solar/#", "qos": 0}]},
+        {"type": "iec61850", "name": "Feeder 21 relay", "host": "127.0.0.1", "port": relay.port, "ied_name": "FDR21",
+         "description": "protection relay: measurements, breaker, overcurrent; trips every 4 min; 2 reports"},
         {"type": "dnp3", "name": "Feeder 3 RTU", "host": "127.0.0.1", "port": rtu.port, "outstation_address": 10,
          "master_address": 1, "description": "11 kV feeder: currents, voltages, power, breaker, alarms, counters; trips every 3 min"},
         {"type": "opcua", "name": "Bottling line 1 PLC", "endpoint_url": opcua.url,
@@ -522,10 +574,11 @@ async def main() -> int:
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
     validator = SchemaValidator(find_schemas())
     secrets_dir = tmp / "secrets"
-    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua", "dnp3"}, secrets_dir=secrets_dir)
+    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850"}, secrets_dir=secrets_dir)
     await platform.start()
     agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector, "mqtt": MqttConnector,
-                                "opcua": OpcUaConnector, "dnp3": Dnp3Connector}, validator,
+                                "opcua": OpcUaConnector, "dnp3": Dnp3Connector,
+                                "iec61850": Iec61850Connector}, validator,
                        edge_id="edge-demo", secrets_dir=secrets_dir)
     await agent.start()
 
@@ -573,6 +626,8 @@ async def main() -> int:
         opcua_task.cancel()
         rtu_task.cancel()
         await rtu.stop()
+        relay_task.cancel()
+        await relay.stop()
         await opcua.stop()
         switch.stop()
         ups.stop()

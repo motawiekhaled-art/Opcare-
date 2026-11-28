@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Opcare test and demo model: an 11 kV feeder protection relay (IED FDR21), IEC 61850-6 SCL (ICD).
+     Used by tools/simulators/iec61850_server.py, the demo, and the CI interop job (IEC61850bean, test-only). -->
+<SCL xmlns="http://www.iec.ch/61850/2003/SCL" version="2007" revision="B">
+  <Header id="opcare-feeder-relay" version="1" revision="1"/>
+  <Communication>
+    <SubNetwork name="StationBus" type="8-MMS">
+      <ConnectedAP iedName="FDR21" apName="AP1">
+        <Address><P type="IP">127.0.0.1</P></Address>
+      </ConnectedAP>
+    </SubNetwork>
+  </Communication>
+  <IED name="FDR21" manufacturer="Opcare" type="FeederRelay" configVersion="1.0">
+    <AccessPoint name="AP1">
+      <Server>
+        <Authentication none="true"/>
+        <LDevice inst="LD0">
+          <LN0 lnClass="LLN0" inst="" lnType="LLN0_T">
+            <DataSet name="Events">
+              <FCDA ldInst="LD0" prefix="" lnClass="XCBR" lnInst="1" doName="Pos" fc="ST"/>
+              <FCDA ldInst="LD0" prefix="" lnClass="PTOC" lnInst="1" doName="Op" fc="ST"/>
+              <FCDA ldInst="LD0" prefix="" lnClass="PTOC" lnInst="1" doName="Str" fc="ST"/>
+            </DataSet>
+            <DataSet name="Measurands">
+              <FCDA ldInst="LD0" prefix="" lnClass="MMXU" lnInst="1" doName="TotW" fc="MX"/>
+              <FCDA ldInst="LD0" prefix="" lnClass="MMXU" lnInst="1" doName="TotVAr" fc="MX"/>
+              <FCDA ldInst="LD0" prefix="" lnClass="MMXU" lnInst="1" doName="Hz" fc="MX"/>
+            </DataSet>
+            <ReportControl name="brcbEV" rptID="FDR21LD0/LLN0.brcbEV" datSet="Events" confRev="1" buffered="true" bufTime="0" intgPd="0">
+              <TrgOps dchg="true" qchg="true" dupd="false" period="false" gi="true"/>
+              <OptFields seqNum="true" timeStamp="true" dataSet="true" reasonCode="true" dataRef="false" entryID="true" configRef="true" bufOvfl="true"/>
+              <RptEnabled max="1"/>
+            </ReportControl>
+            <ReportControl name="urcbMX" rptID="FDR21LD0/LLN0.urcbMX" datSet="Measurands" confRev="1" buffered="false" bufTime="0" intgPd="5000">
+              <TrgOps dchg="true" qchg="true" dupd="false" period="true" gi="true"/>
+              <OptFields seqNum="true" timeStamp="true" dataSet="true" reasonCode="true" dataRef="false" configRef="true"/>
+              <RptEnabled max="1"/>
+            </ReportControl>
+            <DOI name="Beh"><DAI name="stVal"><Val>on</Val></DAI></DOI>
+            <DOI name="NamPlt">
+              <DAI name="vendor"><Val>Opcare</Val></DAI>
+              <DAI name="swRev"><Val>1.0</Val></DAI>
+              <DAI name="d"><Val>Feeder 21 protection relay</Val></DAI>
+            </DOI>
+          </LN0>
+          <LN lnClass="LPHD" inst="1" lnType="LPHD_T"/>
+          <LN lnClass="MMXU" inst="1" lnType="MMXU_T">
+            <DOI name="TotW"><DAI name="d"><Val>Feeder active power (MW)</Val></DAI></DOI>
+          </LN>
+          <LN lnClass="XCBR" inst="1" lnType="XCBR_T"/>
+          <LN lnClass="PTOC" inst="1" lnType="PTOC_T"/>
+        </LDevice>
+      </Server>
+    </AccessPoint>
+  </IED>
+  <DataTypeTemplates>
+    <LNodeType id="LLN0_T" lnClass="LLN0">
+      <DO name="Beh" type="INS_Beh"/>
+      <DO name="Health" type="INS_Health"/>
+      <DO name="NamPlt" type="LPL_T"/>
+    </LNodeType>
+    <LNodeType id="LPHD_T" lnClass="LPHD">
+      <DO name="PhyHealth" type="INS_Health"/>
+    </LNodeType>
+    <LNodeType id="MMXU_T" lnClass="MMXU">
+      <DO name="Beh" type="INS_Beh"/>
+      <DO name="TotW" type="MV_T"/>
+      <DO name="TotVAr" type="MV_T"/>
+      <DO name="Hz" type="MV_T"/>
+      <DO name="A" type="WYE_T"/>
+      <DO name="PhV" type="WYE_T"/>
+    </LNodeType>
+    <LNodeType id="XCBR_T" lnClass="XCBR">
+      <DO name="Beh" type="INS_Beh"/>
+      <DO name="Pos" type="DPC_T"/>
+      <DO name="OpCnt" type="INS_Cnt"/>
+    </LNodeType>
+    <LNodeType id="PTOC_T" lnClass="PTOC">
+      <DO name="Beh" type="INS_Beh"/>
+      <DO name="Str" type="ACT_T"/>
+      <DO name="Op" type="ACT_T"/>
+    </LNodeType>
+    <DOType id="INS_Beh" cdc="ENS">
+      <DA name="stVal" bType="Enum" type="Beh" fc="ST" dchg="true"/>
+      <DA name="q" bType="Quality" fc="ST" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="ST"/>
+    </DOType>
+    <DOType id="INS_Health" cdc="ENS">
+      <DA name="stVal" bType="Enum" type="Health" fc="ST" dchg="true"/>
+      <DA name="q" bType="Quality" fc="ST" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="ST"/>
+    </DOType>
+    <DOType id="INS_Cnt" cdc="INS">
+      <DA name="stVal" bType="INT32" fc="ST" dchg="true"/>
+      <DA name="q" bType="Quality" fc="ST" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="ST"/>
+    </DOType>
+    <DOType id="LPL_T" cdc="LPL">
+      <DA name="vendor" bType="VisString255" fc="DC"/>
+      <DA name="swRev" bType="VisString255" fc="DC"/>
+      <DA name="d" bType="VisString255" fc="DC"/>
+    </DOType>
+    <DOType id="MV_T" cdc="MV">
+      <DA name="mag" bType="Struct" type="AV_T" fc="MX" dchg="true"/>
+      <DA name="q" bType="Quality" fc="MX" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="MX"/>
+      <DA name="d" bType="VisString255" fc="DC"/>
+    </DOType>
+    <DOType id="CMV_T" cdc="CMV">
+      <DA name="cVal" bType="Struct" type="VEC_T" fc="MX" dchg="true"/>
+      <DA name="q" bType="Quality" fc="MX" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="MX"/>
+    </DOType>
+    <DOType id="WYE_T" cdc="WYE">
+      <SDO name="phsA" type="CMV_T"/>
+      <SDO name="phsB" type="CMV_T"/>
+      <SDO name="phsC" type="CMV_T"/>
+    </DOType>
+    <DOType id="DPC_T" cdc="DPC">
+      <DA name="stVal" bType="Dbpos" fc="ST" dchg="true"/>
+      <DA name="q" bType="Quality" fc="ST" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="ST"/>
+      <DA name="ctlModel" bType="Enum" type="ctlModel" fc="CF"><Val>status-only</Val></DA>
+    </DOType>
+    <DOType id="ACT_T" cdc="ACT">
+      <DA name="general" bType="BOOLEAN" fc="ST" dchg="true"/>
+      <DA name="q" bType="Quality" fc="ST" qchg="true"/>
+      <DA name="t" bType="Timestamp" fc="ST"/>
+    </DOType>
+    <DAType id="AV_T">
+      <BDA name="f" bType="FLOAT32"/>
+    </DAType>
+    <DAType id="VEC_T">
+      <BDA name="mag" bType="Struct" type="AV_T"/>
+    </DAType>
+    <EnumType id="Beh">
+      <EnumVal ord="1">on</EnumVal>
+      <EnumVal ord="2">blocked</EnumVal>
+      <EnumVal ord="3">test</EnumVal>
+      <EnumVal ord="4">test/blocked</EnumVal>
+      <EnumVal ord="5">off</EnumVal>
+    </EnumType>
+    <EnumType id="Health">
+      <EnumVal ord="1">Ok</EnumVal>
+      <EnumVal ord="2">Warning</EnumVal>
+      <EnumVal ord="3">Alarm</EnumVal>
+    </EnumType>
+    <EnumType id="ctlModel">
+      <EnumVal ord="0">status-only</EnumVal>
+      <EnumVal ord="1">direct-with-normal-security</EnumVal>
+      <EnumVal ord="2">sbo-with-normal-security</EnumVal>
+      <EnumVal ord="3">direct-with-enhanced-security</EnumVal>
+      <EnumVal ord="4">sbo-with-enhanced-security</EnumVal>
+    </EnumType>
+  </DataTypeTemplates>
+</SCL>

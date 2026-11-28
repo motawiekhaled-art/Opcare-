@@ -3,7 +3,7 @@
 | Item | Value |
 |---|---|
 | Document | OSS-DAQ-CON-001 |
-| Spec version | **1.0.0-draft.3** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9); draft.3 lists the DNP3 link-layer frames (15.6) |
+| Spec version | **1.0.0-draft.3** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9); draft.3 lists the DNP3 link-layer frames (15.6) and limits secret `*_ref` fields to `connection` (3) |
 | Date | 3 November 2026 |
 | Parent documents | MVP Scope OSS-DAQ-MVP-001 v0.2 · Architecture OSS-DAQ-ARC-001 v0.1 (section 7) |
 | Status | Draft for engineering review |
@@ -99,7 +99,7 @@ The edge agent starts each connector with these environment variables. A connect
 | `OPCARE_DATA_DIR` | no | `/data` | Persistent directory (default `/data`) |
 | `OPCARE_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
 
-**Secrets** (device passwords, private keys) are never inside the configuration document. Configuration fields ending in `_ref` name a file in `OPCARE_SECRETS_DIR`. Example: `"password_ref": "relay-f21-password"` → read `/run/secrets/relay-f21-password`. A missing secret file is error `SECRET_MISSING`.
+**Secrets** (device passwords, private keys) are never inside the configuration document. Fields ending in `_ref` **inside `connection`** name a file in `OPCARE_SECRETS_DIR` (elsewhere `_ref` is an ordinary name, e.g. the IEC 61850 `object_ref` and `rcb_ref` of 15.4). Example: `"password_ref": "relay-f21-password"` → read `/run/secrets/relay-f21-password`. A missing secret file is error `SECRET_MISSING`.
 
 ## 4. MQTT rules
 
@@ -222,7 +222,7 @@ A configuration is valid only if **all** of these hold:
 3. `site` and `source_id` equal the environment values.
 4. `type` equals the manifest type.
 5. Every `tag_id` is unique within the document.
-6. Every `*_ref` secret file exists and is readable.
+6. Every `*_ref` secret file named in `connection` exists and is readable.
 7. Every `scan_ms` ≥ manifest `limits.min_scan_ms`; number of points ≤ `limits.max_points`.
 8. Protocol-specific checks in section 15 pass.
 

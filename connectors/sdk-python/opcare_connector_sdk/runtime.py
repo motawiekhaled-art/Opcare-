@@ -306,7 +306,7 @@ class Runtime:
         dupes = sorted({t for t in tags if tags.count(t) > 1})
         if dupes:
             errs.append(f"duplicate tag_id: {', '.join(dupes[:10])}")
-        for ref in secret_refs(cfg):
+        for ref in secret_refs(cfg.get("connection")):        # secrets live in connection only (spec section 3)
             if not (self.env.secrets_dir / ref).is_file():
                 errs.append(f"secret '{ref}' missing")
         return errs

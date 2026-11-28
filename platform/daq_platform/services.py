@@ -173,7 +173,7 @@ class Platform:
                            f"no {doc['type']} connector is installed yet; available: {sorted(self.available_types)}")
         if self.secrets_dir is not None:
             missing = [f"{path}: secret '{ref}' is not stored yet — enter the password again"
-                       for path, ref in _secret_refs(doc) if not (self.secrets_dir / ref).is_file()]
+                       for path, ref in _secret_refs(doc.get("connection"), "connection") if not (self.secrets_dir / ref).is_file()]
             if missing:
                 raise ApiError(422, "CFG_INVALID", "configuration is not valid", missing)
         owners = {t["tag_id"]: t["source_id"] for t in await self.store.run(self.store.list_tags)}
