@@ -39,6 +39,12 @@ OPCUA_DEVICES = ["Siemens S7-1500 / S7-1200 (built-in OPC UA server), WinCC OA a
                  "Gateways and SCADA: Kepware KEPServerEX, Ignition, Matrikon, Softing, AVEVA",
                  "Machines with OPC UA companion specifications (EUROMAP, umati, PackML)"]
 OPCUA = P("OPC UA", "IEC 62541 (Part 4 services, Part 6 UA-TCP binary, Part 7 security profiles)", "opcua", {}, 4840, OPCUA_DEVICES)
+IEC61850_DEVICES = ["Protection relays: SEL-4xx/7xx, Siemens SIPROTEC 5, ABB Relion 615/620/670, GE UR / Multilin 8 Series",
+                    "Schneider Easergy MiCOM P40 / Sepam, NR Electric PCS, Hitachi Energy, ZIV, Arcteq",
+                    "Bay controllers, station computers and gateways (SICAM A8000, ABB COM600, SEL RTAC as server)",
+                    "Power-quality and revenue meters with IEC 61850 (Siemens SICAM Q, Schneider ION)",
+                    "Inverter and battery plant controllers with IEC 61850-7-420 models"]
+IEC61850 = P("IEC 61850 MMS", "IEC 61850-8-1 (MMS over TCP, TLS per IEC 62351-4)", "iec61850", {}, 102, IEC61850_DEVICES)
 DNP3_DEVICES = ["Substation RTUs and gateways: SEL RTAC, GE D20/D400, ABB RTU500, Siemens SICAM, NovaTech OrionLX",
                 "Protection relays and IEDs: SEL-351/451/751, GE Multilin, Schneider Easergy, ABB Relion",
                 "Water, wastewater and pipeline RTUs: Schneider SCADAPack, Emerson ROC/FloBoss, Survalent",
@@ -54,7 +60,7 @@ CATALOG = [
      "description": "Protection relays, intelligent electronic devices, RTUs and meters in power substations, "
                     "generation plants and water networks.",
      "standards": ["IEC 61850", "IEC 60870-5-104", "IEEE 1815 (DNP3)", "IEC 62351"],
-     "protocols": [P("IEC 61850 MMS", "IEC 61850-8-1", "iec61850", port=102),
+     "protocols": [IEC61850,
                    P("IEC 60870-5-104", "IEC 60870-5-104", "iec104", port=2404),
                    DNP3,
                    OPCUA,

@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "iec61850",
+  "name": "IEC 61850 MMS client (Opcare stack, IEC 61850-8-1)",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["reports", "poll"], "browse": true, "read_now": true, "device_timestamps": true, "tls": true },
+  "limits": { "max_points": 50000, "min_scan_ms": 50 }
+}
