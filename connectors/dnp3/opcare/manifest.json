@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "dnp3",
+  "name": "DNP3 master over TCP or TLS (Opcare stack, IEEE 1815)",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["poll", "unsolicited"], "browse": true, "read_now": true, "device_timestamps": true, "tls": true },
+  "limits": { "max_points": 50000, "min_scan_ms": 50 }
+}

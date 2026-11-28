@@ -39,6 +39,12 @@ OPCUA_DEVICES = ["Siemens S7-1500 / S7-1200 (built-in OPC UA server), WinCC OA a
                  "Gateways and SCADA: Kepware KEPServerEX, Ignition, Matrikon, Softing, AVEVA",
                  "Machines with OPC UA companion specifications (EUROMAP, umati, PackML)"]
 OPCUA = P("OPC UA", "IEC 62541 (Part 4 services, Part 6 UA-TCP binary, Part 7 security profiles)", "opcua", {}, 4840, OPCUA_DEVICES)
+DNP3_DEVICES = ["Substation RTUs and gateways: SEL RTAC, GE D20/D400, ABB RTU500, Siemens SICAM, NovaTech OrionLX",
+                "Protection relays and IEDs: SEL-351/451/751, GE Multilin, Schneider Easergy, ABB Relion",
+                "Water, wastewater and pipeline RTUs: Schneider SCADAPack, Emerson ROC/FloBoss, Survalent",
+                "Recloser and capacitor-bank controllers, distribution automation and feeder RTUs",
+                "SCADA front ends and protocol gateways (Triangle MicroWorks SCADA Data Gateway, Kepware DNP3)"]
+DNP3 = P("DNP3", "IEEE 1815-2012 (DNP3 over TCP, TLS per IEC 62351-3)", "dnp3", {}, 20000, DNP3_DEVICES)
 MQTT = P("MQTT / Sparkplug B", "ISO/IEC 20922, OASIS MQTT 5.0, Eclipse Sparkplug 3.0", "mqtt", {}, 1883, MQTT_DEVICES)
 SNMP_V2C = P("SNMP v1 / v2c", "RFC 1157, RFC 3416 (community)", "snmp", {"version": "2c"}, 161, SNMP_DEVICES)
 SNMP_V3 = P("SNMPv3 (secure)", "RFC 3414 USM, RFC 3826 AES, RFC 7860", "snmp", {"version": "3"}, 161, SNMP_DEVICES)
@@ -50,7 +56,7 @@ CATALOG = [
      "standards": ["IEC 61850", "IEC 60870-5-104", "IEEE 1815 (DNP3)", "IEC 62351"],
      "protocols": [P("IEC 61850 MMS", "IEC 61850-8-1", "iec61850", port=102),
                    P("IEC 60870-5-104", "IEC 60870-5-104", "iec104", port=2404),
-                   P("DNP3", "IEEE 1815", "dnp3", port=20000),
+                   DNP3,
                    OPCUA,
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),
                    P("Modbus RTU", "Modbus over Serial Line v1.02", "modbus", {"transport": "rtu"}),
@@ -65,6 +71,7 @@ CATALOG = [
      "protocols": [OPCUA,
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),
                    P("Modbus RTU", "Modbus over Serial Line v1.02", "modbus", {"transport": "rtu"}),
+                   DNP3,
                    P("UDP telegrams", "RFC 768 (PLC send / receive)", "udp", {}, 5514, UDP_PLC),
                    P("MQTT / Sparkplug B", "OASIS MQTT 5.0, Eclipse Sparkplug 3.0", "mqtt", {}, 1883,
                      ["Sparkplug B edge nodes and SCADA (Ignition, Inductive Automation)", "PLC and drive gateways publishing MQTT",

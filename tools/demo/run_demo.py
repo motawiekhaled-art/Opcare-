@@ -35,7 +35,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp", "connectors/mqtt",
-          "connectors/opcua", "tools/simulators"):
+          "connectors/opcua", "connectors/dnp3", "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
@@ -56,6 +56,8 @@ from snmp_connector.ber import INTEGER, OCTET_STRING, VarBind  # noqa: E402
 from snmp_connector.messages import UsmUser  # noqa: E402
 from snmp_sim import SnmpAgent, standard_mib, ups_mib  # noqa: E402
 from udp_connector import UdpConnector  # noqa: E402
+from dnp3_connector import Dnp3Connector  # noqa: E402
+from dnp3_outstation import Dnp3Outstation  # noqa: E402
 from opcua_connector import OpcUaConnector  # noqa: E402
 from opcua_server import OpcUaServer  # noqa: E402
 from opcare_connector_sdk import SchemaValidator  # noqa: E402
@@ -242,6 +244,58 @@ def free_udp(host: str, wanted: int) -> int:
 
 
 OPCUA_DEMO = {"username": "operator", "password": "OpcUa@2026"}
+FEEDER_RTU = {"analog_input": [("Ia", 182.0), ("Ib", 179.5), ("Ic", 184.2), ("Vab", 11.02), ("Vbc", 11.05), ("Vca", 10.98),
+                               ("P", 3.21), ("Q", 0.94), ("PF", 0.96), ("Freq", 50.0)],
+              "binary_input": ["Trip", "EarthFault", "SF6Low", "LocalMode"],
+              "double_bit_binary_input": ["CB", "Isolator"],
+              "counter": [("kWhImport", 8_412_650), ("CBOperations", 1_284)]}
+
+
+def feeder_rtu(port: int) -> Dnp3Outstation:
+    """An 11 kV feeder RTU (DNP3 outstation 10): currents, voltages, power, breaker and isolator, alarms, counters."""
+    o = Dnp3Outstation(address=10, master=1, port=port)
+    for i, (_, v) in enumerate(FEEDER_RTU["analog_input"]):
+        o.add("analog_input", i, v, deadband=0.0)
+    for i, _ in enumerate(FEEDER_RTU["binary_input"]):
+        o.add("binary_input", i, False)
+    for i, _ in enumerate(FEEDER_RTU["double_bit_binary_input"]):
+        o.add("double_bit_binary_input", i, 2)                      # 2 = closed / on
+    for i, (_, v) in enumerate(FEEDER_RTU["counter"]):
+        o.add("counter", i, v)
+    return o
+
+
+async def drive_feeder(o: Dnp3Outstation) -> None:
+    """Load follows a slow curve; every 3 minutes an earth fault trips the breaker, which recloses 20 s later."""
+    t0, kwh, ops = time.time(), 8_412_650, 1_284
+    while True:
+        await asyncio.sleep(1)
+        t = time.time() - t0
+        tripped = 100 <= t % 180 < 120
+        if tripped and o.db["double_bit_binary_input"][0].value == 2:
+            o.set("binary_input", 1, True)                         # earth fault
+            o.set("binary_input", 0, True)                         # protection trip
+            o.set("double_bit_binary_input", 0, 1)                 # breaker open
+            ops += 1
+            o.set("counter", 1, ops)
+        elif not tripped and o.db["double_bit_binary_input"][0].value == 1:
+            o.set("binary_input", 1, False)
+            o.set("binary_input", 0, False)
+            o.set("double_bit_binary_input", 0, 2)                 # reclosed
+            ops += 1
+            o.set("counter", 1, ops)
+        load = 0 if tripped else 1 + 0.12 * math.sin(t / 90)
+        for i, base in enumerate((182.0, 179.5, 184.2)):
+            o.set("analog_input", i, round(base * load + random.uniform(-0.8, 0.8), 1))
+        for i, base in enumerate((11.02, 11.05, 10.98)):
+            o.set("analog_input", 3 + i, round(base + random.uniform(-0.03, 0.03) + (0.12 if tripped else 0), 3))
+        p = round(3.21 * load + random.uniform(-0.02, 0.02), 3)
+        o.set("analog_input", 6, p)
+        o.set("analog_input", 7, round(0.94 * load + random.uniform(-0.01, 0.01), 3))
+        o.set("analog_input", 8, round(0.96 + random.uniform(-0.005, 0.005), 3) if load else 0.0)
+        o.set("analog_input", 9, round(50 + random.uniform(-0.03, 0.03), 3))
+        kwh += int(p * 1000 / 3600)
+        o.set("counter", 0, kwh)
 
 
 def bottling_line_server(port: int) -> OpcUaServer:
@@ -440,6 +494,9 @@ async def main() -> int:
     solar = SolarEdgeNode(broker)
     broker.on_subscribe = lambda f: solar.births() if f.startswith(("spBv1.0", "#")) else None   # as on reconnect of a host
     mqtt_tasks = [asyncio.create_task(solar.run()), asyncio.create_task(drive_water_meters(broker))]
+    rtu = feeder_rtu(pick_port("127.0.0.1", 20010))
+    await rtu.start()
+    rtu_task = asyncio.create_task(drive_feeder(rtu))
     opcua = bottling_line_server(pick_port("127.0.0.1", 48410))
     await opcua.start()
     opcua_task = asyncio.create_task(drive_bottling_line(opcua))
@@ -454,6 +511,8 @@ async def main() -> int:
                      {"id": "ups-1", "host": "127.0.0.1", "port": ups_port, "name": "UPS 10 kVA"}]},
         {"type": "mqtt", "name": "Water meters and solar plant (MQTT broker)", "broker_url": f"mqtt://127.0.0.1:{broker_port}",
          "subscriptions": [{"topic_filter": "meters/+/telemetry", "qos": 1}, {"topic_filter": "spBv1.0/solar/#", "qos": 0}]},
+        {"type": "dnp3", "name": "Feeder 3 RTU", "host": "127.0.0.1", "port": rtu.port, "outstation_address": 10,
+         "master_address": 1, "description": "11 kV feeder: currents, voltages, power, breaker, alarms, counters; trips every 3 min"},
         {"type": "opcua", "name": "Bottling line 1 PLC", "endpoint_url": opcua.url,
          "security_policy": "Basic256Sha256", "security_mode": "SignAndEncrypt", "thumbprint": opcua.thumbprint, **OPCUA_DEMO},
         {"type": "udp", "name": "GNSS and weather station", "bind_port": udp_port,
@@ -463,10 +522,10 @@ async def main() -> int:
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
     validator = SchemaValidator(find_schemas())
     secrets_dir = tmp / "secrets"
-    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua"}, secrets_dir=secrets_dir)
+    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua", "dnp3"}, secrets_dir=secrets_dir)
     await platform.start()
     agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector, "mqtt": MqttConnector,
-                                "opcua": OpcUaConnector}, validator,
+                                "opcua": OpcUaConnector, "dnp3": Dnp3Connector}, validator,
                        edge_id="edge-demo", secrets_dir=secrets_dir)
     await agent.start()
 
@@ -512,6 +571,8 @@ async def main() -> int:
         await broker.stop()
         udp_task.cancel()
         opcua_task.cancel()
+        rtu_task.cancel()
+        await rtu.stop()
         await opcua.stop()
         switch.stop()
         ups.stop()

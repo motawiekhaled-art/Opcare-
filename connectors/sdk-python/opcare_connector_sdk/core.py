@@ -312,8 +312,10 @@ ALLOW = {
                            "GetNamedVariableListAttributes", "Read"}
                           | {f"WRITE_RCB:{a}" for a in ("Resv", "ResvTms", "RptEna", "GI", "TrgOps", "IntgPd",
                                                         "BufTm", "OptFlds", "EntryID")}),
-    # dnp3: function codes; FC2 only for clearing IIN1.7 (request name 'FC2_CLEAR_RESTART')
-    "dnp3": frozenset({"FC0", "FC1", "FC20", "FC21", "FC2_CLEAR_RESTART"}),
+    # dnp3: function codes; FC2 only for clearing IIN1.7 (request name 'FC2_CLEAR_RESTART'); link-layer keep-alive
+    # and answers to the outstation's link requests (spec 15.6, draft.3)
+    "dnp3": frozenset({"FC0", "FC1", "FC20", "FC21", "FC2_CLEAR_RESTART", "LINK_STATUS_REQUEST", "LINK_STATUS",
+                       "LINK_ACK"}),
     # udp: receive-only listener; nothing may ever be sent (spec 15.8)
     "udp": frozenset(),
     # snmp: reads only; "Response(Inform)" is the acknowledgement of a received InformRequest (spec 15.9)

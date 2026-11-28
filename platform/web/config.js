@@ -279,6 +279,7 @@
     if (c.type === "snmp") return h("div", {class: "step2"}, demoBoxFor("snmp"), basics, ...snmpConnection(), testPanel());
     if (c.type === "mqtt") return h("div", {class: "step2"}, demoBoxFor("mqtt"), basics, ...mqttConnection(), testPanel());
     if (c.type === "opcua") return h("div", {class: "step2"}, demoBoxFor("opcua"), basics, ...opcuaConnection(), testPanel());
+    if (c.type === "dnp3") return h("div", {class: "step2"}, demoBoxFor("dnp3"), basics, ...dnp3Connection(), testPanel());
     let link;
     if (c.type === "modbus") {
       const tcp = conn.transport === "tcp";
@@ -332,6 +333,7 @@
         : "Opens a short connection from the site's edge node. Nothing is saved."), out);
   }
   function okText(d) {
+    if (st.cfg.type === "dnp3") return `Connected · ${d.latency_ms} ms · outstation ${d.info?.outstation}${d.info?.tls ? " · TLS" : ""} · ${Object.entries(d.info?.points || {}).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ") || "no points"} · IIN ${(d.info?.iin || []).join(", ")}`;
     if (st.cfg.type === "opcua") return `Connected · ${d.latency_ms} ms · ${d.info?.security} · ${d.info?.product || d.info?.server || "server"} · ${d.info?.server_state}`;
     if (st.cfg.type === "mqtt") return `Connected · MQTT ${d.info?.protocol}${d.info?.tls ? " · TLS" : ""} · ${Object.entries(d.info?.subscriptions || {}).map(([f, r]) => `${f}: ${r}`).join(", ")}`;
     if (st.cfg.type === "udp") return `Heard · ${d.info?.datagrams ?? "?"} datagram(s) from ${d.info?.from} (${d.info?.format})`;
@@ -353,6 +355,7 @@
     if (st.cfg.type === "snmp") return step3snmp();
     if (st.cfg.type === "mqtt") return step3mqtt();
     if (st.cfg.type === "opcua") return step3opcua();
+    if (st.cfg.type === "dnp3") return step3dnp3();
     const c = st.cfg, devs = c.connection.devices.map((d) => [d.id, d.id]);
     const prefix = `${c.site || "site"}.${c.source_id || "source"}.`;
     const rows = c.points.map((p, i) => {
@@ -470,6 +473,7 @@
     if (cfg.type === "udp") return `${c.syslog ? "Syslog" : "UDP"} · port ${c.bind_port}`;
     if (cfg.type === "snmp") return `SNMP ${c.version === "3" ? "v3" : "v" + c.version}`;
     if (cfg.type === "mqtt") return `MQTT · ${String(c.broker_url || "").replace(/^mqtts?:\/\//, "")}`;
+    if (cfg.type === "dnp3") return `DNP3 · ${c.host || "?"}:${c.port || 20000} · outstation ${c.outstation_address}`;
     if (cfg.type === "opcua") return `OPC UA · ${String(c.endpoint_url || "").replace(/^opc\.tcp:\/\//, "")}`;
     return cfg.type;
   }
@@ -479,6 +483,7 @@
       if (/syslog/i.test(p.name)) c.syslog = {min_severity: "warning"};
       return c;
     }
+    if (p.connector === "dnp3") return {host: "", port: p.port || 20000, master_address: 1, outstation_address: 10, response_timeout_ms: 5000, keep_alive_s: 60};
     if (p.connector === "opcua") return {endpoint_url: "opc.tcp://", security_policy: "Basic256Sha256", security_mode: "SignAndEncrypt",
       auth: "anonymous", trusted_server_thumbprints: [], session_timeout_ms: 60000};
     if (p.connector === "mqtt") return {broker_url: "mqtt://", protocol_version: "5", auth: "anonymous", keepalive_s: 60,
@@ -491,6 +496,8 @@
     if (type === "udp") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
     if (type === "snmp") return {...base, default_scan_ms: 10000, request_timeout_ms: 2000};
     if (type === "mqtt") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
+    if (type === "dnp3") return {...base, default_scan_ms: 5000, request_timeout_ms: 5000, integrity_on_connect: true, integrity_period_s: 3600,
+      class_polls: {class1_ms: 5000, class2_ms: 5000, class3_ms: 5000}, unsolicited: false};
     if (type === "opcua") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000, mode: "subscribe", publishing_interval_ms: 1000};
     return {...base, default_scan_ms: 1000, request_timeout_ms: 1000};
   }
@@ -503,6 +510,13 @@
       return /^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(conn.broker_url || "") && conn.subscriptions?.length && conn.subscriptions.every((x) => x.topic_filter)
         && (auth !== "username" || (conn.username && hasSecret(conn.password_ref, "password")))
         && (auth !== "certificate" || (hasSecret(conn.client_cert_ref, "client-cert") && hasSecret(conn.client_key_ref, "client-key")));
+    }
+    if (c.type === "dnp3") {
+      const n = (x, lo, hi) => Number.isInteger(Number(x)) && Number(x) >= lo && Number(x) <= hi;
+      const tls = conn.tls || {};
+      return Boolean(conn.host) && n(conn.port ?? 20000, 1, 65535) && n(conn.outstation_address, 0, 65519) && n(conn.master_address ?? 1, 0, 65519)
+        && Number(conn.outstation_address) !== Number(conn.master_address ?? 1)
+        && (!tls.enabled || !(tls.client_cert_ref || st.secrets["client-cert"]) === !(tls.client_key_ref || st.secrets["client-key"]));
     }
     if (c.type === "opcua") {
       const auth = conn.auth || "anonymous", secure = (conn.security_policy || "Basic256Sha256") !== "None";
@@ -528,6 +542,10 @@
   function connectionSummary(c) {
     const conn = c.connection;
     if (c.type === "udp") return `Listening on UDP ${conn.bind_host || "0.0.0.0"}:${conn.bind_port}${conn.syslog ? ` · syslog events from ${conn.syslog.min_severity}` : ""}`;
+    if (c.type === "dnp3") {
+      const a = c.acquisition, cp = a.class_polls || {};
+      return `${conn.host}:${conn.port || 20000}${conn.tls?.enabled ? " over TLS" : ""} · master ${conn.master_address ?? 1} → outstation ${conn.outstation_address} · ${a.unsolicited ? "unsolicited reports" : `class polls ${[1, 2, 3].map((k) => cp[`class${k}_ms`] ? `${k}: ${cp[`class${k}_ms`] / 1000} s` : null).filter(Boolean).join(", ") || "off"}`} · integrity ${a.integrity_period_s ? `every ${a.integrity_period_s / 60} min` : "on connect only"}`;
+    }
     if (c.type === "opcua") return `${conn.endpoint_url} · ${secLabel(conn)} · sign-in ${conn.auth || "anonymous"}${(conn.trusted_server_thumbprints || []).length ? ` · trusts ${conn.trusted_server_thumbprints.length} server certificate(s)` : ""}`;
     if (c.type === "mqtt") return `${conn.broker_url} · MQTT ${conn.protocol_version === "3.1.1" ? "3.1.1" : "5.0"} · ${conn.auth || "anonymous"}`;
     if (c.type === "snmp") return `SNMP ${conn.version === "3" ? `v3 · user ${conn.v3?.username} · ${conn.v3?.security_level}` : "v" + conn.version + " · community"} · port ${conn.port || 161}${conn.traps ? ` · traps on UDP ${conn.traps.bind_port}` : ""}`;
@@ -538,6 +556,7 @@
     if (c.type === "udp") return conn.senders.map((x) => `${x.id} (${x.host})`).join(", ");
     if (c.type === "snmp") return conn.devices.map((d) => `${d.id} (${d.host}${d.port ? ":" + d.port : ""})`).join(", ");
     if (c.type === "opcua") return "OPC UA server";
+    if (c.type === "dnp3") return `DNP3 outstation ${c.connection.outstation_address}`;
     if (c.type === "mqtt") return `Subscribed to ${conn.subscriptions.map((x) => x.topic_filter).join(", ")}`;
     return conn.devices.map((d) => `${d.id} (unit ${d.unit_id})`).join(", ");
   }
@@ -549,6 +568,7 @@
     const where = (d) => type === "udp" ? `sends to UDP port ${d.bind_port} from ${d.senders.map((x) => x.host).join(", ")}`
       : type === "snmp" ? `${d.devices.map((x) => `${x.host}:${x.port}`).join(", ")} · community "${d.community}"${d.v3 ? ` · v3 user ${d.v3.username}` : ""}`
       : type === "mqtt" ? `broker ${d.broker_url} · ${d.subscriptions.map((x) => x.topic_filter).join(", ")}`
+      : type === "dnp3" ? `${d.host}:${d.port} · outstation ${d.outstation_address}, master ${d.master_address} · ${d.description}`
       : type === "opcua" ? `${d.endpoint_url} · ${d.security_policy}/${d.security_mode} · user "${d.username}" — test, then trust the server certificate`
       : `${d.host}:${d.port}, unit ${d.unit_id}`;
     return h("aside", {class: "demo-box"}, h("b", {}, "Demo: simulated devices you can connect to"),
@@ -561,6 +581,8 @@
     if (!c.site) c.site = catalog.demo.site;
     if (d.type === "udp") {
       Object.assign(conn, {bind_host: "127.0.0.1", bind_port: d.bind_port, senders: d.senders.map((x) => ({...x}))});
+    } else if (d.type === "dnp3") {
+      Object.assign(conn, {host: d.host, port: d.port, outstation_address: d.outstation_address, master_address: d.master_address});
     } else if (d.type === "opcua") {
       Object.assign(conn, {endpoint_url: d.endpoint_url, security_policy: d.security_policy, security_mode: d.security_mode,
         auth: "username", username: d.username});
@@ -587,6 +609,10 @@
       if (conn.auth === "username") out.push(["password", conn, "password_ref"]);
       if (String(conn.broker_url).startsWith("mqtts")) out.push(["ca-cert", conn, "ca_cert_ref"]);
       if (conn.auth === "certificate") out.push(["client-cert", conn, "client_cert_ref"], ["client-key", conn, "client_key_ref"]);
+      return out;
+    }
+    if (st.cfg.type === "dnp3") {
+      if (conn.tls?.enabled) out.push(["ca-cert", conn.tls, "ca_cert_ref"], ["client-cert", conn.tls, "client_cert_ref"], ["client-key", conn.tls, "client_key_ref"]);
       return out;
     }
     if (st.cfg.type === "opcua") {
@@ -813,11 +839,71 @@
       data_type: item.data_type === "int" ? "int" : item.data_type || "float"};
     if (st.cfg.type === "snmp" && item.info?.type?.startsWith("Counter")) { p.address.transform = "rate"; p.data_type = "float"; }
     if (p.data_type === "int" && st.cfg.type === "udp") p.data_type = "float";
+    if (st.cfg.type === "dnp3") {
+      p.tag_id = uniqueTag(`${({binary_input: "bi", double_bit_binary_input: "dbi", binary_output_status: "bo", counter: "cnt", frozen_counter: "fcnt", analog_input: "ai", analog_output_status: "ao"})[a.group]}-${a.index}`);
+      if (item.data_type === "int" && a.group.startsWith("analog")) p.data_type = "float";
+    }
     if (st.cfg.type === "opcua") {
       p.tag_id = uniqueTag([...(st.uaPath || []).map((x) => x.name), item.name].join("-"));
       if (!item.data_type) p.data_type = item.info?.sample !== undefined && isNaN(Number(item.info.sample)) ? "string" : "float";
     }
     st.cfg.points.push(p); if (redraw) render();
+  }
+
+  // ---------------- step 2 and 3: DNP3 master (spec 15.6)
+  const DNP3_KINDS = [["analog_input", "Analog input (g30)"], ["binary_input", "Binary input (g1)"], ["double_bit_binary_input", "Double-bit input (g3)"],
+    ["counter", "Counter (g20)"], ["frozen_counter", "Frozen counter (g21)"], ["binary_output_status", "Binary output status (g10)"],
+    ["analog_output_status", "Analog output status (g40)"]];
+  const dnp3Type = (kind) => kind === "binary_input" || kind === "binary_output_status" ? "bool" : kind === "double_bit_binary_input" ? "enum"
+    : kind === "counter" || kind === "frozen_counter" ? "int" : "float";
+  function dnp3Connection() {
+    const conn = st.cfg.connection, acq = st.cfg.acquisition, tls = conn.tls || {}, cp = acq.class_polls || (acq.class_polls = {});
+    const num = (id, val, set, attrs) => inp(id, val, (v) => set(v === "" ? undefined : Number(v)), {type: "number", ...attrs});
+    const out = h("fieldset", {}, h("legend", {}, "Outstation (RTU, relay or gateway)"), h("div", {class: "form-grid"},
+      field("IP address or host", inp("f-host", conn.host, (v) => { conn.host = v.trim(); }, {placeholder: "10.20.1.40"})),
+      field("TCP port", num("f-port", conn.port ?? 20000, (v) => { conn.port = v; }, {min: 1, max: 65535}), "DNP3 normally uses 20000."),
+      field("Outstation address", num("f-os-addr", conn.outstation_address, (v) => { conn.outstation_address = v; }, {min: 0, max: 65519}), "The device's DNP3 link address (often 10 or 1024)."),
+      field("Master address", num("f-m-addr", conn.master_address ?? 1, (v) => { conn.master_address = v; }, {min: 0, max: 65519}),
+        "The address the outstation expects its master to have. Must differ from the outstation's."),
+      field("Response timeout (ms)", num("f-dnp-timeout", conn.response_timeout_ms ?? 5000, (v) => { conn.response_timeout_ms = v; }, {min: 100})),
+      field("Link check after idle (s)", num("f-keepalive", conn.keep_alive_s ?? 60, (v) => { conn.keep_alive_s = v; }, {min: 0, max: 3600}), "0 = off.")),
+      field("Secure DNP3 (TLS, IEC 62351-3)", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-dnp-tls", checked: Boolean(tls.enabled),
+        onchange: (e) => { if (e.target.checked) conn.tls = {enabled: true}; else delete conn.tls; render(); }}), " The outstation or its gateway listens with TLS")),
+      tls.enabled ? h("div", {class: "form-grid"},
+        secretArea("CA certificate (PEM)", "ca-cert", conn.tls, "ca_cert_ref", "The CA that signed the outstation's certificate. Empty = the system's trusted CAs."),
+        secretArea("Client certificate (PEM, optional)", "client-cert", conn.tls, "client_cert_ref", "If the outstation asks for a client certificate."),
+        secretArea("Client private key (PEM, optional)", "client-key", conn.tls, "client_key_ref"),
+        field("Certificate check", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-insecure", checked: Boolean(tls.insecure_skip_verify),
+          onchange: (e) => { if (e.target.checked) conn.tls.insecure_skip_verify = true; else delete conn.tls.insecure_skip_verify; render(); }}), " Skip (testing only — not safe)"))) : null);
+    const timing = h("fieldset", {}, h("legend", {}, "How values are collected"), h("div", {class: "form-grid"},
+      field("Changes", sel("f-unsol", acq.unsolicited ? "1" : "0", [["0", "Poll for changes (class 1, 2, 3)"], ["1", "Outstation reports changes itself (unsolicited)"]],
+        (v) => { acq.unsolicited = v === "1"; })),
+      ...[1, 2, 3].map((k) => field(`Class ${k} poll (ms)`, num(`f-class${k}`, cp[`class${k}_ms`] ?? 5000, (v) => { cp[`class${k}_ms`] = v ?? 0; }, {min: 0}),
+        k === 1 ? "Usually alarms and breaker states. 0 = off." : k === 2 ? "Usually measurements. 0 = off." : "Usually counters. 0 = off.")),
+      field("Full read every (s)", num("f-integrity", acq.integrity_period_s ?? 3600, (v) => { acq.integrity_period_s = v ?? 0; }, {min: 0, max: 86400}),
+        "Integrity poll of all points; also done after connecting and after the outstation restarts. 0 = only then.")),
+      h("p", {class: "muted small"}, "Read-only: the connector reads data and confirms receipt. It never operates, freezes, restarts or sets the time of the outstation; "
+        + "the only write it may send clears the outstation's ‘restarted’ flag (IEEE 1815 IIN1.7)."));
+    return [out, timing];
+  }
+  function step3dnp3() {
+    const c = st.cfg, canRead = st.mode === "edit" && st.sourceRunning;
+    const rows = c.points.map((p, i) => h("tr", {class: st.errors.some((e) => e.row === i) ? "row-error" : ""},
+      h("td", {}, inp(`p-tag-${i}`, p.tag_id, (v) => { p.tag_id = v.toLowerCase(); }, {"aria-label": "Tag ID", class: TAG_RE.test(p.tag_id) ? "" : "invalid"})),
+      h("td", {}, sel(`p-group-${i}`, p.address.group, DNP3_KINDS, (v) => { p.address.group = v; p.data_type = dnp3Type(v); if (!numeric(p)) { delete p.scaling; delete p.deadband; delete p.unit; } })),
+      h("td", {}, inp(`p-index-${i}`, p.address.index, (v) => { p.address.index = v === "" ? undefined : Number(v); }, {type: "number", min: 0, max: 65535, "aria-label": "Point index"})),
+      typeCell(p, i), ...scaleCells(p, i),
+      h("td", {class: "read-cell"}, canRead ? h("button", {type: "button", class: "btn ghost", onclick: () => readNow(i)}, p._read ?? "Read") : null),
+      removeCell(c, p, i)));
+    const tools = h("div", {class: "toolbar"},
+      h("button", {type: "button", class: "btn primary", id: "add-tag", onclick: () => { const last = c.points[c.points.length - 1];
+        const g = last?.address.group || "analog_input", idx = last ? Number(last.address.index) + 1 : 0;
+        c.points.push({tag_id: uniqueTag(`point-${c.points.length + 1}`), address: {group: g, index: idx}, data_type: dnp3Type(g)}); render(); }}, "Add tag"),
+      h("button", {type: "button", class: "btn", id: "discover", disabled: st.browse?.busy, onclick: () => discover({})}, st.browse?.busy ? "Reading…" : "Read points from outstation"),
+      h("span", {class: "muted small"}, "Reads the outstation's class 0 data once and lists every point it has, with its current value; click Add, or Add all for a point type. "
+        + "Use the device's DNP3 point list to name the tags."));
+    return h("div", {class: "step3"}, tools, browsePanel(), errorList(),
+      tagTable(["Tag ID", "Point type", "Index", "Type", "Unit", "Scale ×", "Offset +", "Deadband", canRead ? "Value" : "", ""], rows, [280, 220, 90, 120, 80, 80, 80, 80, canRead ? 100 : 10, 44]));
   }
 
   // ---------------- step 2 and 3: OPC UA client (spec 15.2)
@@ -1049,6 +1135,11 @@
           h("b", {}, `${it.kind === "folder" ? "📁" : "▸"} ${it.name}`)), h("span", {class: "muted small"}, ` · ${it.kind}`)),
           h("td", {}, h("button", {type: "button", class: "btn ghost", onclick: () => browseInto(it)}, "Open")));
       }
+      if (st.cfg.type === "dnp3" && it.kind === "object") {
+        const todo = items.filter((x) => x.kind === "variable" && x.address.group === it.path && !have.has(JSON.stringify(x.address)));
+        return h("tr", {class: "group"}, h("td", {colspan: 3}, h("b", {}, it.name), h("span", {class: "muted small"}, ` · ${it.info?.sample || ""}`)),
+          h("td", {}, todo.length ? h("button", {type: "button", class: "btn", "data-add-group": it.path, onclick: () => { todo.forEach((x) => addFromBrowse(x, false)); render(); }}, `Add all ${todo.length}`) : null));
+      }
       if (it.kind === "object" && it.address) {
         const added = have.has(JSON.stringify(it.address));
         return h("tr", {class: "group"}, h("td", {class: "mono"}, it.name), h("td", {}, it.data_type || ""), h("td", {class: "mono small"}, it.info?.sample ?? ""),
@@ -1076,7 +1167,7 @@
     return h("div", {class: "browse"}, crumbs, h("div", {class: "row"}, h("b", {}, b.busy ? "Reading…" : `${items.filter((i) => i.kind !== "object" && i.kind !== "folder").length} value(s) found`),
       b.next ? h("button", {type: "button", class: "btn", onclick: () => discover({path: b.next, max_items: 200, append: true})}, "More") : null, close),
       items.length ? h("div", {class: "table-wrap plain browse-list"}, h("table", {class: "grid compact"}, h("thead", {}, h("tr", {}, ["Value", "Type", "Sample", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)))
-        : b.busy ? null : h("p", {class: "muted"}, st.cfg.type === "opcua" ? "This node has no child objects or variables." : st.cfg.type === "udp" ? "Nothing arrived. Check the device's destination address and port, and the edge node's firewall." : "Nothing found under this OID."));
+        : b.busy ? null : h("p", {class: "muted"}, st.cfg.type === "dnp3" ? "The outstation reported no points in its class 0 data." : st.cfg.type === "opcua" ? "This node has no child objects or variables." : st.cfg.type === "udp" ? "Nothing arrived. Check the device's destination address and port, and the edge node's firewall." : "Nothing found under this OID."));
   }
 
   // ------------------------------------------------------------------ step 4: review and save
@@ -1116,6 +1207,7 @@
       h("dt", {}, "Connection"), h("dd", {}, connectionSummary(c)),
       h("dt", {}, c.type === "udp" ? "Senders" : "Devices"), h("dd", {}, devicesSummary(c)),
       h("dt", {}, "Tags"), h("dd", {}, c.type === "udp" ? `${c.points.length} tag(s), updated whenever a datagram arrives`
+        : c.type === "dnp3" ? `${c.points.length} tag(s): full read on connect${c.acquisition.integrity_period_s ? ` and every ${c.acquisition.integrity_period_s / 60} min` : ""}, changes ${c.acquisition.unsolicited ? "reported by the outstation" : "fetched by class polls"} with the outstation's time stamps`
         : c.type === "opcua" && (c.acquisition.mode || "subscribe") === "subscribe" ? `${c.points.length} tag(s), reported on change (server checks every ${c.acquisition.publishing_interval_ms || 1000} ms)`
         : `${c.points.length} tag(s), read every ${c.acquisition.default_scan_ms} ms`),
       h("dt", {}, "Revision"), h("dd", {}, st.check?.doc ? `${st.check.doc.revision}${st.mode === "edit" ? " (the connector applies it within seconds)" : ""}` : "—"));
