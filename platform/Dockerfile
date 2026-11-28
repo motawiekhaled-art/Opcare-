@@ -9,9 +9,9 @@ LABEL org.opencontainers.image.title="Opcare DAQ central platform" \
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OPCARE_SCHEMA_DIR=/opcare/schemas PYTHONPATH=/app
 
 # starlette, uvicorn (BSD); paho-mqtt (EPL-2.0/EDL-1.0); psycopg 3 (LGPL-3.0, used unmodified as a library);
-# jsonschema, referencing (MIT)
+# jsonschema, referencing (MIT); cryptography (Apache-2.0 OR BSD-3-Clause, OPC UA client certificates)
 RUN pip install --no-cache-dir "starlette>=0.40" "uvicorn>=0.30" "paho-mqtt>=2.1,<3" "psycopg[binary]>=3.2" \
-    "jsonschema>=4.18" "referencing>=0.30"
+    "jsonschema>=4.18" "referencing>=0.30" "cryptography>=42"
 
 COPY connectors/sdk-python/opcare_connector_sdk /app/opcare_connector_sdk
 COPY platform/daq_platform /app/daq_platform

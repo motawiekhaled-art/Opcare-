@@ -10,12 +10,13 @@ docs/connector-spec/        Connector specification OSS-DAQ-CON-001: rulebook, s
 connectors/sdk-python/      Python connector SDK (runtime, value pipeline, guard, test harness)
 connectors/modbus/          Modbus TCP / RTU connector 1.0.0 (reference connector)
 connectors/mqtt/            MQTT subscriber 1.0.0 (3.1.1 / 5.0, TLS): JSON, plain values and Sparkplug B from IoT and edge gateways
+connectors/opcua/           OPC UA client 1.0.0 with Opcare's own stack: all four security policies, subscriptions, browse
 connectors/udp/             UDP listener 1.0.0: NMEA 0183, CSV, JSON, binary telegrams and syslog pushed by devices
 connectors/snmp/            SNMP manager 1.0.0 (v1, v2c, v3): switches, servers, UPSs, firewalls; traps as events
 platform/                   Central platform: ingest, storage, configuration service, API, live-values and configuration screens
 edge/                       Edge agent: starts a connector per configured source, tests configurations before saving
-tools/simulators/           Device simulators (Modbus TCP, SNMP agent, MQTT broker)
-tools/demo/                 One-command demo: substation, pump station, switch + UPS, GNSS/weather station, water meters + solar plant (MQTT)
+tools/simulators/           Device simulators (Modbus TCP, SNMP agent, MQTT broker, OPC UA server)
+tools/demo/                 One-command demo: substation, pump station, switch + UPS, GNSS/weather station, water meters + solar plant (MQTT), bottling line PLC (OPC UA)
 ```
 
 Still to come: alarms, the container-based production edge agent, other connectors,

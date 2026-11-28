@@ -32,6 +32,13 @@ MQTT_DEVICES = ["IoT gateways and edge computers (Node-RED, AWS / Azure IoT edge
                 "Solar inverters, battery systems and EV chargers with MQTT gateways",
                 "Sparkplug B edge nodes (Ignition Edge, Cirrus Link, HiveMQ Edge, Opto 22 groov)",
                 "Wireless sensors (temperature, vibration, pressure) and building IoT platforms"]
+OPCUA_DEVICES = ["Siemens S7-1500 / S7-1200 (built-in OPC UA server), WinCC OA and WinCC Unified",
+                 "Rockwell ControlLogix through FactoryTalk Linx Gateway / FactoryTalk Optix",
+                 "Beckhoff TwinCAT (TF6100), B&R, Omron NX/NJ, Mitsubishi iQ-R, Schneider M580",
+                 "DCS: ABB 800xA, Emerson DeltaV, Honeywell Experion, Yokogawa CENTUM",
+                 "Gateways and SCADA: Kepware KEPServerEX, Ignition, Matrikon, Softing, AVEVA",
+                 "Machines with OPC UA companion specifications (EUROMAP, umati, PackML)"]
+OPCUA = P("OPC UA", "IEC 62541 (Part 4 services, Part 6 UA-TCP binary, Part 7 security profiles)", "opcua", {}, 4840, OPCUA_DEVICES)
 MQTT = P("MQTT / Sparkplug B", "ISO/IEC 20922, OASIS MQTT 5.0, Eclipse Sparkplug 3.0", "mqtt", {}, 1883, MQTT_DEVICES)
 SNMP_V2C = P("SNMP v1 / v2c", "RFC 1157, RFC 3416 (community)", "snmp", {"version": "2c"}, 161, SNMP_DEVICES)
 SNMP_V3 = P("SNMPv3 (secure)", "RFC 3414 USM, RFC 3826 AES, RFC 7860", "snmp", {"version": "3"}, 161, SNMP_DEVICES)
@@ -44,6 +51,7 @@ CATALOG = [
      "protocols": [P("IEC 61850 MMS", "IEC 61850-8-1", "iec61850", port=102),
                    P("IEC 60870-5-104", "IEC 60870-5-104", "iec104", port=2404),
                    P("DNP3", "IEEE 1815", "dnp3", port=20000),
+                   OPCUA,
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),
                    P("Modbus RTU", "Modbus over Serial Line v1.02", "modbus", {"transport": "rtu"}),
                    MQTT,
@@ -54,7 +62,7 @@ CATALOG = [
     {"id": "plc", "name": "Industrial PLC / SCADA", "short": "Controllers, DCS, SCADA servers",
      "description": "PLCs, distributed control systems and SCADA servers. Process values, alarms and events.",
      "standards": ["IEC 62541", "IEC 61158", "IEC 61784", "ISA-95"],
-     "protocols": [P("OPC UA", "IEC 62541", "opcua", port=4840),
+     "protocols": [OPCUA,
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),
                    P("Modbus RTU", "Modbus over Serial Line v1.02", "modbus", {"transport": "rtu"}),
                    P("UDP telegrams", "RFC 768 (PLC send / receive)", "udp", {}, 5514, UDP_PLC),

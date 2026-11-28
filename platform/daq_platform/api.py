@@ -201,6 +201,16 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
         await store.run(store.audit, who["user"], "store_secret", name, "")   # never the value
         return Response(status_code=204)
 
+    async def opcua_certificate(request):
+        who = await auth(request, "engineer")
+        data = await body(request) if request.method == "POST" else {}
+        name = (data or {}).get("name") or request.query_params.get("name") or "opcua-client"
+        regenerate = request.method == "POST" and bool((data or {}).get("regenerate"))
+        res = platform.opcua_certificate(name, regenerate, create=request.method == "POST")
+        if res.get("created"):
+            await store.run(store.audit, who["user"], "create_opcua_certificate", name, res["thumbprint"])
+        return JSONResponse(res)
+
     async def tags(request):
         await auth(request, "viewer")
         qp = request.query_params
@@ -285,6 +295,7 @@ def create_app(platform: Platform, tokens: dict[str, dict], demo_info: dict | No
         Route("/api/sources-browse", browse_unsaved, methods=["POST"]),
         Route("/api/secrets", list_secrets, methods=["GET"]),
         Route("/api/secrets/{name}", put_secret, methods=["PUT"]),
+        Route("/api/opcua-certificate", opcua_certificate, methods=["GET", "POST"]),
         Route("/api/sources/{sid}", get_source, methods=["GET"]),
         Route("/api/sources/{sid}", update_source, methods=["PUT"]),
         Route("/api/sources/{sid}", delete_source, methods=["DELETE"]),

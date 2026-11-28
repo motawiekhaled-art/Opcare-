@@ -35,7 +35,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp", "connectors/mqtt",
-          "tools/simulators"):
+          "connectors/opcua", "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
@@ -56,6 +56,8 @@ from snmp_connector.ber import INTEGER, OCTET_STRING, VarBind  # noqa: E402
 from snmp_connector.messages import UsmUser  # noqa: E402
 from snmp_sim import SnmpAgent, standard_mib, ups_mib  # noqa: E402
 from udp_connector import UdpConnector  # noqa: E402
+from opcua_connector import OpcUaConnector  # noqa: E402
+from opcua_server import OpcUaServer  # noqa: E402
 from opcare_connector_sdk import SchemaValidator  # noqa: E402
 from opcare_connector_sdk.testing import find_schemas  # noqa: E402
 
@@ -239,6 +241,52 @@ def free_udp(host: str, wanted: int) -> int:
             return s.getsockname()[1]
 
 
+OPCUA_DEMO = {"username": "operator", "password": "OpcUa@2026"}
+
+
+def bottling_line_server(port: int) -> OpcUaServer:
+    """A bottling line PLC with an OPC UA server (as on an S7-1500 or through Kepware)."""
+    srv = OpcUaServer("urn:opcare:demo:bottling-line", port=port, path="/line1",
+                      policies=[("None", "None"), ("Basic256Sha256", "SignAndEncrypt"), ("Aes256_Sha256_RsaPss", "SignAndEncrypt")],
+                      users={OPCUA_DEMO["username"]: OPCUA_DEMO["password"]}, anonymous=False,
+                      product="Opcare demo · Bottling line 1 PLC")
+    for ident, value, folder, name in (
+            ("Line1.Filler.Speed", 18000.0, "Line1/Filler", "Speed"), ("Line1.Filler.Running", True, "Line1/Filler", "Running"),
+            ("Line1.Filler.BottleCount", 1_250_400, "Line1/Filler", "BottleCount"),
+            ("Line1.Filler.Mode", "AUTO", "Line1/Filler", "Mode"),
+            ("Line1.Capper.Torque", 2.35, "Line1/Capper", "Torque"), ("Line1.Capper.RejectCount", 312, "Line1/Capper", "RejectCount"),
+            ("Line1.Oven.Temperature", 182.0, "Line1/ShrinkOven", "Temperature"),
+            ("Line1.Oven.Setpoint", 185.0, "Line1/ShrinkOven", "Setpoint"),
+            ("Line1.Energy.ActivePower", 96.4, "Line1/Energy", "ActivePower"),
+            ("Line1.Energy.TotalEnergy", 412_903.6, "Line1/Energy", "TotalEnergy")):
+        srv.add_variable(ident, value, folder=folder, name=name)
+    return srv
+
+
+async def drive_bottling_line(srv: OpcUaServer) -> None:
+    """Changes the line's values every second; a short stop every few minutes."""
+    count, rejects, energy, t0 = 1_250_400, 312, 412_903.6, time.time()
+    while True:
+        await asyncio.sleep(1)
+        t = time.time() - t0
+        running = (t % 300) > 20
+        speed = (18000 + 600 * math.sin(t / 50) + random.uniform(-80, 80)) if running else 0.0
+        count += int(speed / 3600)
+        if running and random.random() < 0.08:
+            rejects += 1
+        power = (96 + 6 * math.sin(t / 40) + random.uniform(-1, 1)) if running else 18.5
+        energy += power / 3600
+        srv.set("Line1.Filler.Speed", round(speed, 1))
+        srv.set("Line1.Filler.Running", running)
+        srv.set("Line1.Filler.BottleCount", count)
+        srv.set("Line1.Filler.Mode", "AUTO" if running else "STOPPED")
+        srv.set("Line1.Capper.Torque", round(2.35 + random.uniform(-0.05, 0.05), 3) if running else 0.0)
+        srv.set("Line1.Capper.RejectCount", rejects)
+        srv.set("Line1.Oven.Temperature", round(182 + 2.5 * math.sin(t / 70) + random.uniform(-0.3, 0.3), 2))
+        srv.set("Line1.Energy.ActivePower", round(power, 2))
+        srv.set("Line1.Energy.TotalEnergy", round(energy, 2))
+
+
 def pick_port(host: str, wanted: int) -> int:
     """Use the wanted port, or a free one if something else already uses it."""
     with socket.socket() as s:
@@ -392,6 +440,9 @@ async def main() -> int:
     solar = SolarEdgeNode(broker)
     broker.on_subscribe = lambda f: solar.births() if f.startswith(("spBv1.0", "#")) else None   # as on reconnect of a host
     mqtt_tasks = [asyncio.create_task(solar.run()), asyncio.create_task(drive_water_meters(broker))]
+    opcua = bottling_line_server(pick_port("127.0.0.1", 48410))
+    await opcua.start()
+    opcua_task = asyncio.create_task(drive_bottling_line(opcua))
     udp_port = free_udp("127.0.0.1", 5514)
     udp_task = asyncio.create_task(drive_udp_station(udp_port))
 
@@ -403,6 +454,8 @@ async def main() -> int:
                      {"id": "ups-1", "host": "127.0.0.1", "port": ups_port, "name": "UPS 10 kVA"}]},
         {"type": "mqtt", "name": "Water meters and solar plant (MQTT broker)", "broker_url": f"mqtt://127.0.0.1:{broker_port}",
          "subscriptions": [{"topic_filter": "meters/+/telemetry", "qos": 1}, {"topic_filter": "spBv1.0/solar/#", "qos": 0}]},
+        {"type": "opcua", "name": "Bottling line 1 PLC", "endpoint_url": opcua.url,
+         "security_policy": "Basic256Sha256", "security_mode": "SignAndEncrypt", "thumbprint": opcua.thumbprint, **OPCUA_DEMO},
         {"type": "udp", "name": "GNSS and weather station", "bind_port": udp_port,
          "senders": [{"id": "station", "host": "127.0.0.1", "name": "GNSS + weather station"}]}]}
 
@@ -410,9 +463,10 @@ async def main() -> int:
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
     validator = SchemaValidator(find_schemas())
     secrets_dir = tmp / "secrets"
-    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt"}, secrets_dir=secrets_dir)
+    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua"}, secrets_dir=secrets_dir)
     await platform.start()
-    agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector, "mqtt": MqttConnector}, validator,
+    agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector, "mqtt": MqttConnector,
+                                "opcua": OpcUaConnector}, validator,
                        edge_id="edge-demo", secrets_dir=secrets_dir)
     await agent.start()
 
@@ -457,6 +511,8 @@ async def main() -> int:
             t.cancel()
         await broker.stop()
         udp_task.cancel()
+        opcua_task.cancel()
+        await opcua.stop()
         switch.stop()
         ups.stop()
         await sim.stop()

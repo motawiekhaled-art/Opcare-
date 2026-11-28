@@ -123,6 +123,20 @@ jobs:
         if: always()
         run: sudo cat "$RUNNER_TEMP/snmp/snmpd.log" | tail -50
 
+  opcua-interop:
+    name: OPC UA · interoperability with an independent server (asyncua, test-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install packages (asyncua is a test opponent only; it is never in the product or its images)
+        run: pip install jsonschema referencing pytest cryptography "paho-mqtt>=2.1,<3" asyncua
+      - name: Interoperability tests (None, Basic256Sha256, Aes256_Sha256_RsaPss; username sign-in; browse)
+        run: python -m pytest connectors/opcua/tests -v -rs
+
   docker:
     name: Container images build
     runs-on: ubuntu-latest
@@ -137,12 +151,18 @@ jobs:
         run: docker build -f connectors/snmp/Dockerfile -t opcare/connector-snmp:ci .
       - name: MQTT connector image
         run: docker build -f connectors/mqtt/Dockerfile -t opcare/connector-mqtt:ci .
+      - name: OPC UA connector image
+        run: docker build -f connectors/opcua/Dockerfile -t opcare/connector-opcua:ci .
+      - name: "OPC UA image holds no OPC UA library (Opcare's own stack only)"
+        run: |
+          docker run --rm --entrypoint python opcare/connector-opcua:ci -c \
+            "import importlib.util as u, sys; bad=[m for m in ('asyncua','opcua') if u.find_spec(m)]; print('found', bad); sys.exit(1 if bad else 0)"
       - name: Platform image
         run: docker build -f platform/Dockerfile -t opcare/daq-platform:ci .
       - name: "Connector image refuses to start without its environment (spec: exit code 2)"
         run: |
           set +e
-          for c in modbus udp snmp mqtt; do
+          for c in modbus udp snmp mqtt opcua; do
             docker run --rm --read-only "opcare/connector-$c:ci"
             code=$?
             echo "$c exit code $code"

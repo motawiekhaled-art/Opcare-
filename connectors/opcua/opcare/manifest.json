@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "opcua",
+  "name": "OPC UA client (Opcare stack: None, Basic256Sha256, Aes128_Sha256_RsaOaep, Aes256_Sha256_RsaPss)",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["subscribe", "poll"], "browse": true, "read_now": true, "device_timestamps": true, "tls": true },
+  "limits": { "max_points": 50000, "min_scan_ms": 50 }
+}

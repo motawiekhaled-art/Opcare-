@@ -278,6 +278,7 @@
     if (c.type === "udp") return h("div", {class: "step2"}, demoBoxFor("udp"), basics, ...udpConnection(), testPanel());
     if (c.type === "snmp") return h("div", {class: "step2"}, demoBoxFor("snmp"), basics, ...snmpConnection(), testPanel());
     if (c.type === "mqtt") return h("div", {class: "step2"}, demoBoxFor("mqtt"), basics, ...mqttConnection(), testPanel());
+    if (c.type === "opcua") return h("div", {class: "step2"}, demoBoxFor("opcua"), basics, ...opcuaConnection(), testPanel());
     let link;
     if (c.type === "modbus") {
       const tcp = conn.transport === "tcp";
@@ -322,7 +323,8 @@
     const out = !r ? null : r.busy ? h("p", {class: "muted"}, "Testing…") :
       r.error ? h("p", {class: "error"}, r.error) :
       h("ul", {class: "test-results"}, r.devices.map((d) => h("li", {}, h("span", {}, d.id),
-        h("span", {class: `q ${d.ok ? "q-good" : "q-bad"}`}, d.ok ? okText(d) : `${d.error?.code || "Failed"}: ${d.error?.message || ""}`))));
+        h("span", {class: `q ${d.ok ? "q-good" : "q-bad"}`}, d.ok ? okText(d) : `${d.error?.code || "Failed"}: ${d.error?.message || ""}`),
+        st.cfg.type === "opcua" ? trustOffer(d) : null)));
     const udp = st.cfg.type === "udp";
     return h("div", {class: "test-panel"}, h("button", {type: "button", class: "btn", id: "test-btn", disabled: r?.busy, onclick: testConnection},
       icon("api", 16), udp ? " Listen for datagrams" : " Test connection"),
@@ -330,6 +332,7 @@
         : "Opens a short connection from the site's edge node. Nothing is saved."), out);
   }
   function okText(d) {
+    if (st.cfg.type === "opcua") return `Connected · ${d.latency_ms} ms · ${d.info?.security} · ${d.info?.product || d.info?.server || "server"} · ${d.info?.server_state}`;
     if (st.cfg.type === "mqtt") return `Connected · MQTT ${d.info?.protocol}${d.info?.tls ? " · TLS" : ""} · ${Object.entries(d.info?.subscriptions || {}).map(([f, r]) => `${f}: ${r}`).join(", ")}`;
     if (st.cfg.type === "udp") return `Heard · ${d.info?.datagrams ?? "?"} datagram(s) from ${d.info?.from} (${d.info?.format})`;
     if (st.cfg.type === "snmp") return `Connected · ${d.latency_ms} ms${d.info?.sysName ? ` · ${d.info.sysName}` : ""}${d.info?.sysDescr ? ` · ${d.info.sysDescr.slice(0, 60)}` : ""}`;
@@ -349,6 +352,7 @@
     if (st.cfg.type === "udp") return step3udp();
     if (st.cfg.type === "snmp") return step3snmp();
     if (st.cfg.type === "mqtt") return step3mqtt();
+    if (st.cfg.type === "opcua") return step3opcua();
     const c = st.cfg, devs = c.connection.devices.map((d) => [d.id, d.id]);
     const prefix = `${c.site || "site"}.${c.source_id || "source"}.`;
     const rows = c.points.map((p, i) => {
@@ -466,6 +470,7 @@
     if (cfg.type === "udp") return `${c.syslog ? "Syslog" : "UDP"} · port ${c.bind_port}`;
     if (cfg.type === "snmp") return `SNMP ${c.version === "3" ? "v3" : "v" + c.version}`;
     if (cfg.type === "mqtt") return `MQTT · ${String(c.broker_url || "").replace(/^mqtts?:\/\//, "")}`;
+    if (cfg.type === "opcua") return `OPC UA · ${String(c.endpoint_url || "").replace(/^opc\.tcp:\/\//, "")}`;
     return cfg.type;
   }
   function blankConnection(p) {
@@ -474,6 +479,8 @@
       if (/syslog/i.test(p.name)) c.syslog = {min_severity: "warning"};
       return c;
     }
+    if (p.connector === "opcua") return {endpoint_url: "opc.tcp://", security_policy: "Basic256Sha256", security_mode: "SignAndEncrypt",
+      auth: "anonymous", trusted_server_thumbprints: [], session_timeout_ms: 60000};
     if (p.connector === "mqtt") return {broker_url: "mqtt://", protocol_version: "5", auth: "anonymous", keepalive_s: 60,
       subscriptions: [{topic_filter: "", qos: 1}]};
     if (p.connector === "snmp") return {version: p.preset?.version || "2c", port: p.port || 161, devices: [{id: "device-1", host: "", name: ""}], retries: 1, max_oids_per_request: 20};
@@ -484,6 +491,7 @@
     if (type === "udp") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
     if (type === "snmp") return {...base, default_scan_ms: 10000, request_timeout_ms: 2000};
     if (type === "mqtt") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
+    if (type === "opcua") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000, mode: "subscribe", publishing_interval_ms: 1000};
     return {...base, default_scan_ms: 1000, request_timeout_ms: 1000};
   }
   const hasSecret = (ref, kind) => Boolean(st.secrets?.[kind]) || (ref && (storedSecrets.includes(ref) || !catalog.secrets));
@@ -495,6 +503,13 @@
       return /^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(conn.broker_url || "") && conn.subscriptions?.length && conn.subscriptions.every((x) => x.topic_filter)
         && (auth !== "username" || (conn.username && hasSecret(conn.password_ref, "password")))
         && (auth !== "certificate" || (hasSecret(conn.client_cert_ref, "client-cert") && hasSecret(conn.client_key_ref, "client-key")));
+    }
+    if (c.type === "opcua") {
+      const auth = conn.auth || "anonymous", secure = (conn.security_policy || "Basic256Sha256") !== "None";
+      return /^opc\.tcp:\/\/[^/:]+(:\d+)?(\/.*)?$/.test(conn.endpoint_url || "")
+        && (!secure || (conn.client_cert_ref && conn.client_key_ref))
+        && (auth !== "username" || (conn.username && hasSecret(conn.password_ref, "password")))
+        && (auth !== "certificate" || (hasSecret(conn.user_cert_ref, "user-cert") && hasSecret(conn.user_key_ref, "user-key")));
     }
     if (c.type === "snmp") {
       if (!conn.devices?.length || !conn.devices.every((d) => d.id && d.host)) return false;
@@ -513,6 +528,7 @@
   function connectionSummary(c) {
     const conn = c.connection;
     if (c.type === "udp") return `Listening on UDP ${conn.bind_host || "0.0.0.0"}:${conn.bind_port}${conn.syslog ? ` · syslog events from ${conn.syslog.min_severity}` : ""}`;
+    if (c.type === "opcua") return `${conn.endpoint_url} · ${secLabel(conn)} · sign-in ${conn.auth || "anonymous"}${(conn.trusted_server_thumbprints || []).length ? ` · trusts ${conn.trusted_server_thumbprints.length} server certificate(s)` : ""}`;
     if (c.type === "mqtt") return `${conn.broker_url} · MQTT ${conn.protocol_version === "3.1.1" ? "3.1.1" : "5.0"} · ${conn.auth || "anonymous"}`;
     if (c.type === "snmp") return `SNMP ${conn.version === "3" ? `v3 · user ${conn.v3?.username} · ${conn.v3?.security_level}` : "v" + conn.version + " · community"} · port ${conn.port || 161}${conn.traps ? ` · traps on UDP ${conn.traps.bind_port}` : ""}`;
     return conn.transport === "tcp" ? `${conn.host}:${conn.port}` : `${conn.serial?.device} · ${conn.serial?.baud} baud`;
@@ -521,6 +537,7 @@
     const conn = c.connection;
     if (c.type === "udp") return conn.senders.map((x) => `${x.id} (${x.host})`).join(", ");
     if (c.type === "snmp") return conn.devices.map((d) => `${d.id} (${d.host}${d.port ? ":" + d.port : ""})`).join(", ");
+    if (c.type === "opcua") return "OPC UA server";
     if (c.type === "mqtt") return `Subscribed to ${conn.subscriptions.map((x) => x.topic_filter).join(", ")}`;
     return conn.devices.map((d) => `${d.id} (unit ${d.unit_id})`).join(", ");
   }
@@ -532,6 +549,7 @@
     const where = (d) => type === "udp" ? `sends to UDP port ${d.bind_port} from ${d.senders.map((x) => x.host).join(", ")}`
       : type === "snmp" ? `${d.devices.map((x) => `${x.host}:${x.port}`).join(", ")} · community "${d.community}"${d.v3 ? ` · v3 user ${d.v3.username}` : ""}`
       : type === "mqtt" ? `broker ${d.broker_url} · ${d.subscriptions.map((x) => x.topic_filter).join(", ")}`
+      : type === "opcua" ? `${d.endpoint_url} · ${d.security_policy}/${d.security_mode} · user "${d.username}" — test, then trust the server certificate`
       : `${d.host}:${d.port}, unit ${d.unit_id}`;
     return h("aside", {class: "demo-box"}, h("b", {}, "Demo: simulated devices you can connect to"),
       list.map((d) => h("div", {class: "demo-dev"}, h("span", {}, `${d.name} — ${where(d)}`),
@@ -543,6 +561,10 @@
     if (!c.site) c.site = catalog.demo.site;
     if (d.type === "udp") {
       Object.assign(conn, {bind_host: "127.0.0.1", bind_port: d.bind_port, senders: d.senders.map((x) => ({...x}))});
+    } else if (d.type === "opcua") {
+      Object.assign(conn, {endpoint_url: d.endpoint_url, security_policy: d.security_policy, security_mode: d.security_mode,
+        auth: "username", username: d.username});
+      st.secrets.password = d.password;
     } else if (d.type === "mqtt") {
       Object.assign(conn, {broker_url: d.broker_url, subscriptions: d.subscriptions.map((x) => ({...x}))});
     } else {
@@ -565,6 +587,11 @@
       if (conn.auth === "username") out.push(["password", conn, "password_ref"]);
       if (String(conn.broker_url).startsWith("mqtts")) out.push(["ca-cert", conn, "ca_cert_ref"]);
       if (conn.auth === "certificate") out.push(["client-cert", conn, "client_cert_ref"], ["client-key", conn, "client_key_ref"]);
+      return out;
+    }
+    if (st.cfg.type === "opcua") {
+      if (conn.auth === "username") out.push(["password", conn, "password_ref"]);
+      if (conn.auth === "certificate") out.push(["user-cert", conn, "user_cert_ref"], ["user-key", conn, "user_key_ref"]);
       return out;
     }
     if (st.cfg.type !== "snmp") return out;
@@ -778,7 +805,7 @@
       : {error: r.data?.error ? `${r.data.error.code}: ${r.data.error.message || errText(r)}` : errText(r), items: keep};
     rerenderKeepFocus();
   }
-  function addFromBrowse(item) {
+  function addFromBrowse(item, redraw = true) {
     const a = item.address || {};
     const where = st.cfg.type === "mqtt" ? (a.format === "sparkplug_b" ? `${a.edge_node_id}${a.device_id ? "-" + a.device_id : ""}` : a.topic) : "";
     const base = (where ? `${where}-` : "") + (st.cfg.type === "mqtt" && a.format === "raw" ? "" : item.name.replace(/^\//, "")).replace(/[/.+#|]/g, "-");
@@ -786,7 +813,138 @@
       data_type: item.data_type === "int" ? "int" : item.data_type || "float"};
     if (st.cfg.type === "snmp" && item.info?.type?.startsWith("Counter")) { p.address.transform = "rate"; p.data_type = "float"; }
     if (p.data_type === "int" && st.cfg.type === "udp") p.data_type = "float";
-    st.cfg.points.push(p); render();
+    if (st.cfg.type === "opcua") {
+      p.tag_id = uniqueTag([...(st.uaPath || []).map((x) => x.name), item.name].join("-"));
+      if (!item.data_type) p.data_type = item.info?.sample !== undefined && isNaN(Number(item.info.sample)) ? "string" : "float";
+    }
+    st.cfg.points.push(p); if (redraw) render();
+  }
+
+  // ---------------- step 2 and 3: OPC UA client (spec 15.2)
+  const UA_SECURITY = [["None|None", "None — no security (trusted networks only)"], ["Basic256Sha256|SignAndEncrypt", "Basic256Sha256 · sign and encrypt"],
+    ["Basic256Sha256|Sign", "Basic256Sha256 · sign only"], ["Aes128_Sha256_RsaOaep|SignAndEncrypt", "Aes128_Sha256_RsaOaep · sign and encrypt"],
+    ["Aes256_Sha256_RsaPss|SignAndEncrypt", "Aes256_Sha256_RsaPss · sign and encrypt (strongest)"]];
+  const secLabel = (conn) => (conn.security_policy || "Basic256Sha256") === "None" ? "no security" : `${conn.security_policy || "Basic256Sha256"} · ${conn.security_mode || "SignAndEncrypt"}`;
+  const NODE_RE = /^(ns=\d+|nsu=[^;]+);[isgb]=.+$|^i=\d+$/;
+  async function ensureUaCert(regenerate = false) {
+    const conn = st.cfg.connection;
+    if (!catalog.secrets || st.uaCert?.busy) return;
+    if (st.uaCert?.data && !regenerate) return;
+    st.uaCert = {busy: true};
+    const r = await api("/api/opcua-certificate", "POST", {name: "opcua-client", regenerate});
+    st.uaCert = r.ok ? {data: r.data} : {error: errText(r)};
+    if (r.ok) { conn.client_cert_ref = r.data.cert_ref; conn.client_key_ref = r.data.key_ref; [r.data.cert_ref, r.data.key_ref].forEach((n) => { if (!storedSecrets.includes(n)) storedSecrets.push(n); }); }
+    rerenderKeepFocus();
+  }
+  function downloadCert(pem, der) {
+    const name = "opcare-daq-opcua-client";
+    let blob;
+    if (der) { const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, ""); blob = new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], {type: "application/pkix-cert"}); }
+    else blob = new Blob([pem], {type: "application/x-pem-file"});
+    const a = h("a", {href: URL.createObjectURL(blob), download: `${name}.${der ? "der" : "pem"}`}); document.body.append(a); a.click(); a.remove();
+  }
+  function trustOffer(d) {
+    const conn = st.cfg.connection, tp = d.info?.server_thumbprint, trusted = conn.trusted_server_thumbprints || [];
+    if (!tp || d.ok || trusted.includes(tp)) return null;
+    const c = d.info.server_certificate || {};
+    return h("div", {class: "trust"}, h("b", {}, "The server presented this certificate:"),
+      h("dl", {class: "summary small"}, h("dt", {}, "Subject"), h("dd", {class: "mono"}, c.subject || "?"), h("dt", {}, "Application"), h("dd", {class: "mono"}, c.application_uri || "?"),
+        h("dt", {}, "Valid until"), h("dd", {}, c.not_after || "?"), h("dt", {}, "SHA-1 thumbprint"), h("dd", {class: "mono"}, tp.match(/.{2}/g).join(":"))),
+      h("p", {class: "muted small"}, "Compare the thumbprint with the one shown on the server (its certificate settings) before trusting it."),
+      h("button", {type: "button", class: "btn primary", id: "trust-btn", onclick: () => { conn.trusted_server_thumbprints = [...trusted, tp]; testConnection(); }}, "Trust this server and test again"));
+  }
+  function opcuaConnection() {
+    const conn = st.cfg.connection, acq = st.cfg.acquisition, auth = conn.auth || "anonymous";
+    const secure = (conn.security_policy || "Basic256Sha256") !== "None";
+    const ownCert = !conn.client_cert_ref || conn.client_cert_ref === "opcua-client.cert.pem";
+    if (secure && catalog.secrets && !st.uaCert && ownCert) setTimeout(() => ensureUaCert(), 0);
+    const server = h("fieldset", {}, h("legend", {}, "OPC UA server"), h("div", {class: "form-grid"},
+      field("Endpoint URL", inp("f-endpoint", conn.endpoint_url, (v) => { conn.endpoint_url = v.trim(); }, {placeholder: "opc.tcp://192.168.1.20:4840", class: "mono"}),
+        "Shown in the server's settings (Kepware, Ignition, S7-1500, FactoryTalk Linx Gateway, 800xA, DeltaV …)."),
+      field("Security", sel("f-ua-sec", `${conn.security_policy || "Basic256Sha256"}|${conn.security_mode || "SignAndEncrypt"}`, UA_SECURITY, (v) => {
+        const [pol, mode] = v.split("|"); conn.security_policy = pol; conn.security_mode = mode;
+        if (pol === "None") { delete conn.client_cert_ref; delete conn.client_key_ref; } }), "Must match an endpoint the server offers. Test connection lists them."),
+      field("Sign-in", sel("f-ua-auth", auth, [["anonymous", "Anonymous"], ["username", "User name and password"], ["certificate", "User certificate"]],
+        (v) => { conn.auth = v; if (v !== "username") { delete conn.username; delete conn.password_ref; } if (v !== "certificate") { delete conn.user_cert_ref; delete conn.user_key_ref; } })),
+      auth === "username" ? field("User name", inp("f-ua-user", conn.username, (v) => { conn.username = v; })) : null,
+      auth === "username" ? secretField("Password", "password", conn, "password_ref", "Stored on the edge node, never in the configuration. Sent encrypted to the server.") : null),
+      auth === "certificate" ? h("div", {class: "form-grid"}, secretArea("User certificate (PEM)", "user-cert", conn, "user_cert_ref"),
+        secretArea("User private key (PEM)", "user-key", conn, "user_key_ref")) : null);
+    let certs = null;
+    if (secure) {
+      const c = st.uaCert, trusted = conn.trusted_server_thumbprints || (conn.trusted_server_thumbprints = []);
+      const mine = !catalog.secrets ? h("div", {class: "form-grid"},
+          field("Client certificate (secret file name)", inp("f-ua-cert", conn.client_cert_ref, (v) => { conn.client_cert_ref = v; })),
+          field("Client private key (secret file name)", inp("f-ua-key", conn.client_key_ref, (v) => { conn.client_key_ref = v; })))
+        : !c && !ownCert ? h("div", {class: "cert-box"}, h("p", {}, "Client certificate files: ", h("span", {class: "mono"}, `${conn.client_cert_ref}, ${conn.client_key_ref}`)),
+            h("button", {type: "button", class: "btn", onclick: () => ensureUaCert()}, "Use the Opcare client certificate instead"))
+        : c?.busy || !c ? h("p", {class: "muted"}, "Preparing the Opcare client certificate…")
+        : c.error ? h("p", {class: "error"}, c.error)
+        : h("div", {class: "cert-box"}, h("p", {}, h("b", {}, "Opcare client certificate "), h("span", {class: "mono small"}, c.data.application_uri), " · valid until ", c.data.not_after),
+            h("p", {class: "mono small"}, `Thumbprint ${c.data.thumbprint.match(/.{2}/g).join(":")}`),
+            h("p", {class: "muted small"}, "The server must trust this certificate: download it and add it to the server's trusted clients (many servers also list rejected clients — approve Opcare DAQ there)."),
+            h("div", {class: "row"}, h("button", {type: "button", class: "btn", id: "cert-der", onclick: () => downloadCert(c.data.certificate_pem, true)}, "Download certificate (.der)"),
+              h("button", {type: "button", class: "btn ghost", onclick: () => downloadCert(c.data.certificate_pem, false)}, ".pem")));
+      const rows = trusted.map((tp, i) => h("tr", {}, h("td", {class: "mono small"}, tp.match(/.{2}/g)?.join(":") || tp),
+        h("td", {}, h("button", {type: "button", class: "btn ghost", onclick: () => { trusted.splice(i, 1); render(); }}, "Remove"))));
+      certs = h("fieldset", {}, h("legend", {}, "Certificates"), mine,
+        h("h4", {}, "Trusted server certificates"),
+        rows.length ? h("table", {class: "grid compact"}, h("tbody", {}, rows)) : h("p", {class: "muted small"}, "None yet. Click Test connection: the server's certificate is shown and you can trust it."),
+        h("div", {class: "trust-add"}, field("Or paste a server thumbprint (SHA-1)", inp("f-ua-tp", st.uaTp || "", (v) => { st.uaTp = v; }, {placeholder: "AB:CD:…", class: "mono"})),
+          h("button", {type: "button", class: "btn", onclick: () => { const t = (st.uaTp || "").replace(/[^0-9a-f]/gi, "").toUpperCase(); if (t.length === 40 && !trusted.includes(t)) trusted.push(t); st.uaTp = ""; render(); }}, "Add")),
+        field("Certificate check", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-insecure", checked: Boolean(conn.insecure_skip_verify),
+          onchange: (e) => { if (e.target.checked) conn.insecure_skip_verify = true; else delete conn.insecure_skip_verify; render(); }}), " Accept any server certificate (testing only — not safe)")));
+    }
+    const mode = acq.mode || "subscribe";
+    const timing = h("fieldset", {}, h("legend", {}, "Acquisition"), h("div", {class: "form-grid"},
+      field("Mode", sel("f-ua-mode", mode, [["subscribe", "Subscribe — the server reports changes (recommended)"], ["poll", "Poll — read at a fixed interval"]], (v) => { acq.mode = v; })),
+      mode === "subscribe" ? field("Publishing interval (ms)", inp("f-ua-pub", acq.publishing_interval_ms ?? 1000, (v) => { acq.publishing_interval_ms = v; }, {type: "number", min: 50}),
+        "How often the server sends changes.") : field("Scan interval (ms)", inp("f-scan", acq.default_scan_ms, (v) => { acq.default_scan_ms = v; }, {type: "number", min: 50})),
+      field("Request timeout (ms)", inp("f-timeout", acq.request_timeout_ms, (v) => { acq.request_timeout_ms = v; }, {type: "number", min: 500})),
+      field("Session timeout (ms)", inp("f-ua-session", conn.session_timeout_ms ?? 60000, (v) => { conn.session_timeout_ms = v; }, {type: "number", min: 10000}))));
+    return [server, certs, timing];
+  }
+  function browseInto(it) {
+    st.uaPath = [...(st.uaPath || []), {path: it.path, name: it.name}];
+    discover({path: it.path});
+  }
+  function step3opcua() {
+    const c = st.cfg, canRead = st.mode === "edit" && st.sourceRunning;
+    const rows = c.points.map((p, i) => h("tr", {class: st.errors.some((e) => e.row === i) ? "row-error" : ""},
+      h("td", {}, inp(`p-tag-${i}`, p.tag_id, (v) => { p.tag_id = v.toLowerCase(); }, {"aria-label": "Tag ID", class: TAG_RE.test(p.tag_id) ? "" : "invalid"})),
+      h("td", {}, inp(`p-node-${i}`, p.address.node_id, (v) => { p.address.node_id = v.trim(); }, {"aria-label": "Node ID", placeholder: "ns=2;s=Line1.Temp", class: NODE_RE.test(p.address.node_id || "") ? "mono" : "mono invalid"})),
+      typeCell(p, i), ...scaleCells(p, i),
+      h("td", {class: "read-cell"}, canRead ? h("button", {type: "button", class: "btn ghost", onclick: () => readNow(i)}, p._read ?? "Read") : null),
+      removeCell(c, p, i)));
+    const pasteBox = st.paste ? h("div", {class: "paste"}, h("label", {for: "paste-text"}, "Paste rows from Excel or a CSV tag export. Columns: tag_id, node_id, data_type, unit (header row optional)."),
+      h("textarea", {id: "paste-text", rows: 6, placeholder: `${c.site}.${c.source_id}.boiler-temp\tns=2;s=Boiler1.Temperature\tfloat\tdegC`}),
+      h("div", {class: "row"}, h("button", {type: "button", class: "btn primary", onclick: importUaPaste}, "Import rows"),
+        h("button", {type: "button", class: "btn ghost", onclick: () => { st.paste = false; render(); }}, "Close"), st.pasteMsg ? h("span", {class: "muted"}, st.pasteMsg) : null)) : null;
+    const tools = h("div", {class: "toolbar"},
+      h("button", {type: "button", class: "btn primary", id: "add-tag", onclick: () => { c.points.push({tag_id: uniqueTag(`value-${c.points.length + 1}`), address: {node_id: ""}, data_type: "float"}); render(); }}, "Add tag"),
+      h("button", {type: "button", class: "btn", id: "discover", disabled: st.browse?.busy, onclick: () => { st.uaPath = []; discover({}); }}, st.browse?.busy ? "Reading…" : "Browse server"),
+      h("button", {type: "button", class: "btn", onclick: () => { st.paste = true; render(); }}, "Paste from Excel / CSV"),
+      h("span", {class: "muted small"}, "Browse walks the server's address space: open folders and click Add next to a value. Node IDs are saved with the namespace URI (nsu=), which survives server restarts."));
+    return h("div", {class: "step3"}, tools, pasteBox, browsePanel(), errorList(),
+      tagTable(["Tag ID", "Node ID", "Type", "Unit", "Scale ×", "Offset +", "Deadband", canRead ? "Value" : "", ""], rows, [280, 380, 120, 80, 80, 80, 80, canRead ? 100 : 10, 44]));
+  }
+  function importUaPaste() {
+    const text = $("paste-text").value.trim(); if (!text) return;
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    const split = (l) => l.split(l.includes("\t") ? "\t" : ",").map((x) => x.trim());
+    let cols = ["tag_id", "node_id", "data_type", "unit"];
+    if (split(lines[0])[0].toLowerCase() === "tag_id") cols = split(lines.shift()).map((x) => x.toLowerCase());
+    let added = 0, skipped = 0;
+    lines.forEach((l) => {
+      const r = Object.fromEntries(split(l).map((v, i) => [cols[i], v]));
+      if (!r.node_id || !NODE_RE.test(r.node_id)) { skipped++; return; }
+      const p = {tag_id: r.tag_id ? r.tag_id.toLowerCase() : uniqueTag(r.node_id.split(/[;=.]/).pop()), address: {node_id: r.node_id},
+        data_type: DATA_TYPES.some(([t]) => t === r.data_type) ? r.data_type : "float"};
+      if (r.unit && numeric(p)) p.unit = r.unit;
+      st.cfg.points.push(p); added++;
+    });
+    st.pasteMsg = `${added} row(s) imported${skipped ? `, ${skipped} skipped (missing or invalid node_id)` : ""}.`;
+    render();
   }
 
   // ---------------- step 3: UDP tags
@@ -886,6 +1044,11 @@
     const items = b.items || [];
     const have = new Set(st.cfg.points.map((p) => JSON.stringify(p.address)));
     const rows = items.slice(0, 400).map((it) => {
+      if (st.cfg.type === "opcua" && it.kind !== "variable") {
+        return h("tr", {class: "group"}, h("td", {colspan: 3}, h("button", {type: "button", class: "linkish", onclick: () => browseInto(it)},
+          h("b", {}, `${it.kind === "folder" ? "📁" : "▸"} ${it.name}`)), h("span", {class: "muted small"}, ` · ${it.kind}`)),
+          h("td", {}, h("button", {type: "button", class: "btn ghost", onclick: () => browseInto(it)}, "Open")));
+      }
       if (it.kind === "object" && it.address) {
         const added = have.has(JSON.stringify(it.address));
         return h("tr", {class: "group"}, h("td", {class: "mono"}, it.name), h("td", {}, it.data_type || ""), h("td", {class: "mono small"}, it.info?.sample ?? ""),
@@ -901,14 +1064,19 @@
           h("td", {}, senderKnown ? null : h("button", {type: "button", class: "btn", onclick: () => { st.cfg.connection.senders.push({id: `sender-${st.cfg.connection.senders.length + 1}`, host: it.path, name: ""}); discover({listen_s: 4, depth: 2}); }}, "Allow sender")));
       }
       const added = have.has(JSON.stringify(it.address));
-      return h("tr", {}, h("td", {class: "mono"}, it.name), h("td", {}, it.info?.type || it.data_type), h("td", {class: "mono small"}, it.info?.sample ?? ""),
+      return h("tr", {}, h("td", {class: "mono"}, it.name), h("td", {}, it.info?.type || it.info?.data_type || it.data_type), h("td", {class: "mono small"}, it.info?.sample ?? ""),
         h("td", {}, it.address?.device === "?" ? h("span", {class: "muted small"}, "allow the sender first") :
           h("button", {type: "button", class: "btn", disabled: added, onclick: () => addFromBrowse(it)}, added ? "Added" : "Add")));
     });
-    return h("div", {class: "browse"}, h("div", {class: "row"}, h("b", {}, b.busy ? "Reading…" : `${items.filter((i) => i.kind !== "object").length} value(s) found`),
+    const crumbs = st.cfg.type === "opcua" ? h("div", {class: "crumbs small"}, (st.uaPath || []).length ? [
+      h("button", {type: "button", class: "linkish", onclick: () => { st.uaPath = []; discover({}); }}, "Objects"),
+      ...st.uaPath.flatMap((x, i) => [" / ", h("button", {type: "button", class: "linkish", onclick: () => { st.uaPath = st.uaPath.slice(0, i + 1); discover({path: x.path}); }}, x.name)])] : "Objects",
+      items.some((i) => i.kind === "variable" && !have.has(JSON.stringify(i.address))) ? h("button", {type: "button", class: "btn", id: "add-all", onclick: () => {
+        items.filter((i) => i.kind === "variable" && !have.has(JSON.stringify(i.address))).forEach((i) => addFromBrowse(i, false)); render(); }}, "Add all values here") : null) : null;
+    return h("div", {class: "browse"}, crumbs, h("div", {class: "row"}, h("b", {}, b.busy ? "Reading…" : `${items.filter((i) => i.kind !== "object" && i.kind !== "folder").length} value(s) found`),
       b.next ? h("button", {type: "button", class: "btn", onclick: () => discover({path: b.next, max_items: 200, append: true})}, "More") : null, close),
       items.length ? h("div", {class: "table-wrap plain browse-list"}, h("table", {class: "grid compact"}, h("thead", {}, h("tr", {}, ["Value", "Type", "Sample", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)))
-        : b.busy ? null : h("p", {class: "muted"}, st.cfg.type === "udp" ? "Nothing arrived. Check the device's destination address and port, and the edge node's firewall." : "Nothing found under this OID."));
+        : b.busy ? null : h("p", {class: "muted"}, st.cfg.type === "opcua" ? "This node has no child objects or variables." : st.cfg.type === "udp" ? "Nothing arrived. Check the device's destination address and port, and the edge node's firewall." : "Nothing found under this OID."));
   }
 
   // ------------------------------------------------------------------ step 4: review and save
@@ -947,7 +1115,9 @@
       h("dt", {}, "Protocol"), h("dd", {}, p ? `${p.name} · ${p.standard}` : c.type),
       h("dt", {}, "Connection"), h("dd", {}, connectionSummary(c)),
       h("dt", {}, c.type === "udp" ? "Senders" : "Devices"), h("dd", {}, devicesSummary(c)),
-      h("dt", {}, "Tags"), h("dd", {}, c.type === "udp" ? `${c.points.length} tag(s), updated whenever a datagram arrives` : `${c.points.length} tag(s), read every ${c.acquisition.default_scan_ms} ms`),
+      h("dt", {}, "Tags"), h("dd", {}, c.type === "udp" ? `${c.points.length} tag(s), updated whenever a datagram arrives`
+        : c.type === "opcua" && (c.acquisition.mode || "subscribe") === "subscribe" ? `${c.points.length} tag(s), reported on change (server checks every ${c.acquisition.publishing_interval_ms || 1000} ms)`
+        : `${c.points.length} tag(s), read every ${c.acquisition.default_scan_ms} ms`),
       h("dt", {}, "Revision"), h("dd", {}, st.check?.doc ? `${st.check.doc.revision}${st.mode === "edit" ? " (the connector applies it within seconds)" : ""}` : "—"));
     const status = st.check?.busy ? h("p", {class: "muted"}, "Checking the configuration…") :
       st.check?.ok ? h("p", {class: "ok-line"}, "✓ Configuration is valid and ready to save.") : errorList();
