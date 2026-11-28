@@ -70,7 +70,7 @@ jobs:
           python-version: "3.12"
       - name: Tests
         run: |
-          pip install starlette uvicorn jsonschema referencing pytest cryptography
+          pip install starlette uvicorn jsonschema referencing pytest cryptography tzdata
           python -m pytest connectors platform edge -v -rs -k "not gui"
       - name: Windows launcher self-test
         if: runner.os == 'Windows'

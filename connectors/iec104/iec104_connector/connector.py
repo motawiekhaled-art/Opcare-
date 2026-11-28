@@ -33,6 +33,13 @@ DEFAULT_TYPE = {"SP": "bool", "DP": "enum", "ST": "int", "BO": "int", "NA": "flo
                 "IT": "int"}
 
 
+def zone(name: str | None):
+    """IANA time zone; UTC needs no time zone database (Windows has none unless the tzdata package is installed)."""
+    if name in (None, "", "UTC", "Etc/UTC", "Z"):
+        return timezone.utc
+    return ZoneInfo(name)
+
+
 def iso(dt: datetime | None) -> str | None:
     if dt is None or dt.year < 1990:
         return None
@@ -114,9 +121,10 @@ class Iec104Connector(Connector):
         if conn.get("t1_s", 15) >= conn.get("t3_s", 20) or conn.get("t2_s", 10) >= conn.get("t1_s", 15):
             errs.append("connection: the timers must satisfy t2 < t1 < t3")
         try:
-            ZoneInfo(conn.get("device_time_zone", "UTC"))
+            zone(conn.get("device_time_zone", "UTC"))
         except (ZoneInfoNotFoundError, ValueError):
-            errs.append(f"connection/device_time_zone: '{conn.get('device_time_zone')}' is not an IANA time zone")
+            errs.append(f"connection/device_time_zone: '{conn.get('device_time_zone')}' is not an IANA time zone "
+                        "(or this computer has no time zone database: install the tzdata package)")
         tls = conn.get("tls") or {}
         if tls.get("enabled") and bool(tls.get("client_cert_ref")) != bool(tls.get("client_key_ref")):
             errs.append("connection/tls: client_cert_ref and client_key_ref go together")
@@ -151,7 +159,7 @@ class Iec104Connector(Connector):
                             ReadOnlyGuard("iec104", ALLOW["iec104"], on_block=self._blocked),
                             k=conn.get("k", 12), w=conn.get("w", 8), t0=conn.get("t0_s", 30), t1=conn.get("t1_s", 15),
                             t2=conn.get("t2_s", 10), t3=conn.get("t3_s", 20), oa=conn.get("originator_address", 0),
-                            tls=ctx, tz=ZoneInfo(conn.get("device_time_zone", "UTC")), on_asdu=on_asdu)
+                            tls=ctx, tz=zone(conn.get("device_time_zone", "UTC")), on_asdu=on_asdu)
 
     def _blocked(self, request: str) -> None:
         if self.sink:
