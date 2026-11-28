@@ -333,6 +333,71 @@
     return {items};
   }
 
+  // ---- IEC 104 substation gateway, common address 1 (as run_demo.py substation_gateway)
+  const GW = {host: "127.0.0.1", port: 12404, ca: 1};
+  const gwPh = (ms) => ((ms - t0) / 1000) % 300;
+  const gwTripped = (ms) => gwPh(ms) >= 200 && gwPh(ms) < 220;
+  const gwLoad = (ms) => gwTripped(ms) ? 0 : 1 + 0.1 * Math.sin((ms - t0) / 120000);
+  const gwTap = (ms) => 9 + Math.floor((ms - t0) / 120000) % 3 - 1;
+  const GW_OBJECTS = {   // ioa -> [type, value fn]
+    1001: ["M_ME_NC_1", (ms) => r(66.1 + (gwTap(ms) - 9) * 0.6 + rnd(-0.05, 0.05), 2)],
+    1002: ["M_ME_NC_1", (ms) => r(66.3 + (gwTap(ms) - 9) * 0.6 + rnd(-0.05, 0.05), 2)],
+    1003: ["M_ME_NC_1", (ms) => r(65.9 + (gwTap(ms) - 9) * 0.6 + rnd(-0.05, 0.05), 2)],
+    1011: ["M_ME_NC_1", (ms) => r(18.4 * gwLoad(ms) + rnd(-0.05, 0.05), 2)],
+    1012: ["M_ME_NC_1", (ms) => r(5.6 * gwLoad(ms) + rnd(-0.02, 0.02), 2)],
+    1013: ["M_ME_NC_1", () => r(50 + rnd(-0.02, 0.02), 3)],
+    1021: ["M_ME_NB_1", (ms) => Math.round(612 + 30 * Math.sin((ms - t0) / 600000))],
+    2001: ["M_DP_NA_1", (ms) => gwTripped(ms) ? 1 : 2], 2002: ["M_DP_NA_1", () => 2],
+    2101: ["M_SP_NA_1", () => false], 2102: ["M_SP_NA_1", (ms) => gwTripped(ms)], 2103: ["M_SP_NA_1", () => false],
+    2201: ["M_ST_NA_1", gwTap],
+    3001: ["M_IT_NA_1", (ms) => 1284400 + Math.floor((ms - t0) / 1000 * 18.4 / 3.6)],
+  };
+  const GW_FAM = {M_SP_NA_1: "SP", M_DP_NA_1: "DP", M_ST_NA_1: "ST", M_BO_NA_1: "BO", M_ME_NA_1: "NA", M_ME_NB_1: "NB", M_ME_NC_1: "NC", M_IT_NA_1: "IT",
+    M_SP_TB_1: "SP", M_DP_TB_1: "DP", M_ST_TB_1: "ST", M_BO_TB_1: "BO", M_ME_TD_1: "NA", M_ME_ND_1: "NA", M_ME_TE_1: "NB", M_ME_TF_1: "NC", M_IT_TB_1: "IT"};
+  const GW_LABEL = {SP: "Single point", DP: "Double point", ST: "Step position", BO: "Bitstring 32", NA: "Normalised value", NB: "Scaled value", NC: "Short float", IT: "Integrated total"};
+  const GW_DT = {SP: ["bool", "int", "string"], DP: ["enum", "int", "string"], ST: ["int", "float", "string"], BO: ["int", "string"], NA: ["float", "string"],
+    NB: ["int", "float", "string"], NC: ["float", "int", "string"], IT: ["int", "float", "string"]};
+  const GW_DEFAULT = {SP: "bool", DP: "enum", ST: "int", BO: "int", NA: "float", NB: "float", NC: "float", IT: "int"};
+  function gwAccess(cfg) {
+    const c = cfg.connection, hs = c.hosts || [];
+    const h = hs.find((x) => x.host === GW.host && Number(x.port ?? 2404) === GW.port);
+    if (!h) return {error: {code: "CONN_TIMEOUT", message: `no answer from ${hs.map((x) => `${x.host}:${x.port ?? 2404}`).join(" or ")} within t0 = ${c.t0_s ?? 30} s (in this demo the gateway is ${GW.host}:${GW.port})`}};
+    if (c.tls?.enabled) return {error: {code: "TLS_FAILED", message: `TLS handshake with ${h.host}:${h.port} failed: the demo gateway does not use TLS`}};
+    const unknown = (c.common_addresses || []).filter((x) => Number(x) !== GW.ca);
+    if (unknown.length) return {error: {code: "ADDR_INVALID", message: `the station does not know common address(es) ${unknown.join(", ")} (the demo gateway is common address ${GW.ca})`}, host: h};
+    return {host: h};
+  }
+  function gwValue(cfg, p, ms) {
+    const a = p.address || {}, o = Number(a.ca) === GW.ca ? GW_OBJECTS[a.ioa] : null;
+    if (!o) return {v: null, q: 4, f: [Number(a.ca) === GW.ca ? "NOT_IN_STATION" : "UNKNOWN_CA"]};
+    const fam = GW_FAM[o[0]];
+    if (a.type && GW_FAM[a.type] !== fam) return {v: null, q: 4, f: ["TYPE_MISMATCH"]};
+    const raw = o[1](ms), dt = p.data_type;
+    const f = fam === "IT" ? ["SEQ:0"] : undefined;
+    if (dt === "string") return {v: fam === "DP" ? ["intermediate", "off", "on", "indeterminate"][raw] : fam === "SP" ? (raw ? "on" : "off") : String(raw), q: 192};
+    if (!GW_DT[fam].includes(dt)) return {v: null, q: 4, f: ["TYPE_MISMATCH"]};
+    if (dt === "bool") return {v: Boolean(raw), q: 192};
+    if (dt === "int" || dt === "enum") return {v: Math.round(Number(raw)), q: 192, f};
+    return {v: scale(p, Number(raw)), q: 192, f};
+  }
+  function gwBrowse(path) {
+    const ms = now(), [ca, famOnly] = String(path || "").split("/").filter(Boolean), items = [];
+    if (ca && Number(ca) !== GW.ca) return {items: [{path: ca, name: `CA ${ca} · unknown to the station`, kind: "object", has_children: false, info: {error: "the station rejected interrogation"}}]};
+    Object.keys(GW_LABEL).forEach((fam) => {
+      if (famOnly && fam !== famOnly) return;
+      const objs = Object.entries(GW_OBJECTS).filter(([, o]) => GW_FAM[o[0]] === fam);
+      if (!objs.length) return;
+      const type = objs[0][1][0];
+      items.push({path: `${GW.ca}/${fam}`, name: `CA ${GW.ca} · ${GW_LABEL[fam]}s`, kind: "object", has_children: true,
+        info: {count: objs.length, type, sample: `${objs.length} object(s), IOA ${objs[0][0]}…${objs[objs.length - 1][0]}`}});
+      objs.forEach(([ioa, [t, fn]]) => { const v = fn(ms);
+        items.push({path: `${GW.ca}/${ioa}`, name: `IOA ${ioa}`, kind: "variable", has_children: false, address: {ca: GW.ca, ioa: Number(ioa), type: t},
+          data_type: GW_DEFAULT[fam], info: {type: t, sample: fam === "DP" ? ["intermediate", "off", "on", "indeterminate"][v] : typeof v === "boolean" ? (v ? "on" : "off") : String(v),
+            quality: 192, ...(fam === "IT" ? {flags: "SEQ:0"} : {})}}); });
+    });
+    return {items};
+  }
+
   // ---- OPC UA server of a bottling line PLC (as run_demo.py bottling_line_server)
   const UA = {url: "opc.tcp://127.0.0.1:48410/line1", ns: "urn:opcare:demo:bottling-line", user: "operator", password: "OpcUa@2026",
     thumb: "5C1A9E0D7B3F2A64C8E1D09B7F4A2E6C3D8B1F07", offered: ["None|None", "Basic256Sha256|SignAndEncrypt", "Aes256_Sha256_RsaPss|SignAndEncrypt"],
@@ -518,8 +583,8 @@
     if (dt === "string") return {v: String(val), q: 192};
     return {v: scale(p, val), q: 192};
   }
-  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : cfg.type === "opcua" ? "server" : cfg.type === "dnp3" ? "outstation" : cfg.type === "iec61850" ? "ied" : p.address.device;
-  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.type === "opcua" ? [{id: "server"}] : cfg.type === "dnp3" ? [{id: "outstation"}] : cfg.type === "iec61850" ? [{id: "ied"}] : cfg.connection.devices;
+  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : cfg.type === "opcua" ? "server" : cfg.type === "dnp3" ? "outstation" : cfg.type === "iec61850" ? "ied" : cfg.type === "iec104" ? "station" : p.address.device;
+  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.type === "opcua" ? [{id: "server"}] : cfg.type === "dnp3" ? [{id: "outstation"}] : cfg.type === "iec61850" ? [{id: "ied"}] : cfg.type === "iec104" ? [{id: "station"}] : cfg.connection.devices;
   function walk(cfg, path, maxItems) {
     const [devId, rest = "1.3.6.1.2.1"] = String(path || "").split(/\/(.*)/s);
     const dev = cfg.connection.devices.find((d) => d.id === (devId || cfg.connection.devices[0].id));
@@ -561,7 +626,7 @@
     if (!cfg.name) e.push("name: 'name' is a required property");
     if (!ID_RE.test(cfg.source_id || "")) e.push(`source_id: '${cfg.source_id || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
     if (!ID_RE.test(cfg.site || "")) e.push(`site: '${cfg.site || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
-    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : cfg.type === "opcua" ? [{id: "server", host: "x"}] : cfg.type === "dnp3" ? [{id: "outstation", host: "x"}] : cfg.type === "iec61850" ? [{id: "ied", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
+    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : cfg.type === "opcua" ? [{id: "server", host: "x"}] : cfg.type === "dnp3" ? [{id: "outstation", host: "x"}] : cfg.type === "iec61850" ? [{id: "ied", host: "x"}] : cfg.type === "iec104" ? [{id: "station", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
     if (!devs.length) e.push(`connection/${what}: at least one is required`);
     if (cfg.type === "mqtt") {
       if (!/^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(c.broker_url || "")) e.push("connection/broker_url: must be mqtt://host[:port] or mqtts://host[:port]");
@@ -580,6 +645,22 @@
       (cfg.points || []).forEach((p, i) => {
         if (!/^[A-Za-z0-9_]{1,64}\/[A-Za-z0-9_]+(\.[A-Za-z0-9_\[\]]+)+$/.test(p.address?.object_ref || "")) e.push(`points/${i}/address/object_ref: '${p.address?.object_ref || ""}' is not an IEC 61850 reference LD/LN.DO[.DA]`);
         if (!["MX", "ST", "CF", "DC", "EX"].includes(p.address?.fc)) e.push(`points/${i}/address/fc: must be MX, ST, CF, DC or EX`);
+      });
+    }
+    if (cfg.type === "iec104") {
+      const hs = c.hosts || [], cas = (c.common_addresses || []).map(Number);
+      if (!hs.length || hs.length > 2 || hs.some((x) => !x.host)) e.push("connection/hosts: one or two hosts, each with 'host'");
+      if (!cas.length || cas.some((x) => !(Number.isInteger(x) && x >= 1 && x <= 65534))) e.push("connection/common_addresses: one or more whole numbers from 1 to 65534");
+      if (Number(c.w ?? 8) > Number(c.k ?? 12)) e.push("connection: w must not be larger than k (IEC 60870-5-104 recommends w <= 2/3 k)");
+      if (!(Number(c.t2_s ?? 10) < Number(c.t1_s ?? 15) && Number(c.t1_s ?? 15) < Number(c.t3_s ?? 20))) e.push("connection: the timers must satisfy t2 < t1 < t3");
+      const seen = new Map();
+      (cfg.points || []).forEach((p, i) => {
+        const a = p.address || {}, fam = a.type ? GW_FAM[a.type] : null;
+        if (!(Number.isInteger(a.ioa) && a.ioa >= 1 && a.ioa <= 16777215)) e.push(`points/${i}/address/ioa: must be a whole number from 1 to 16777215`);
+        if (!cas.includes(Number(a.ca))) e.push(`${p.tag_id}: common address ${a.ca} is not in connection/common_addresses`);
+        if (a.type && !fam) e.push(`points/${i}/address/type: '${a.type}' is not a monitor ASDU type`);
+        if (fam && !GW_DT[fam].includes(p.data_type)) e.push(`${p.tag_id}: a ${a.type} (${GW_LABEL[fam]}) cannot be '${p.data_type}' (use ${GW_DT[fam].join(" or ")})`);
+        const k = `${a.ca}/${a.ioa}`; if (seen.has(k)) e.push(`${p.tag_id}: CA ${a.ca} IOA ${a.ioa} is already tag ${seen.get(k)}`); seen.set(k, p.tag_id);
       });
     }
     if (cfg.type === "dnp3") {
@@ -618,7 +699,7 @@
       if (!TAG_RE.test(p.tag_id || "")) e.push(`points/${i}/tag_id: '${p.tag_id}' does not match the tag pattern (lower case, dot-separated)`);
       if (seen.has(p.tag_id)) e.push(`points/${i}/tag_id: duplicate tag_id '${p.tag_id}'`);
       seen.add(p.tag_id);
-      if (!["mqtt", "opcua", "dnp3", "iec61850"].includes(cfg.type) && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
+      if (!["mqtt", "opcua", "dnp3", "iec61850", "iec104"].includes(cfg.type) && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
       if (cfg.type === "snmp" && !/^\.?[0-2](\.(0|[1-9]\d{0,9}))+$/.test(a.oid || "")) e.push(`points/${i}/address/oid: '${a.oid || ""}' is not a numeric OID`);
       if (cfg.type === "udp" && a.format === "json" && !/^(\/[^/]*)*$/.test(a.value_pointer || "x")) e.push(`points/${i}/address/value_pointer: must start with /`);
       if (cfg.type === "udp" && a.format === "nmea" && !(a.sentence && a.field >= 1)) e.push(`points/${i}/address: NMEA needs a sentence and a field from 1`);
@@ -648,6 +729,7 @@
     if (cfg.type === "opcua") return !uaAccess(cfg).error;
     if (cfg.type === "dnp3") return !dnpAccess(cfg).error;
     if (cfg.type === "iec61850") return !iecAccess(cfg).error;
+    if (cfg.type === "iec104") return !gwAccess(cfg).error;
     if (cfg.type === "snmp") return !snmpAccess(cfg, dev).error;
     if (cfg.source_id === "modbus-mcc-01") return !(dev.id === "feeder-2" && feeder2Down(ms));
     return isPump(cfg.connection) && Number(dev.unit_id) === PUMP.unit;
@@ -658,6 +740,7 @@
     if (cfg.type === "opcua") return uaValue(cfg, p, ms);
     if (cfg.type === "dnp3") return dnpValue(cfg, p, ms);
     if (cfg.type === "iec61850") return iecValue(cfg, p, ms);
+    if (cfg.type === "iec104") return gwValue(cfg, p, ms);
     if (cfg.type === "snmp") {
       const dev = cfg.connection.devices.find((d) => d.id === p.address.device), acc = dev ? snmpAccess(cfg, dev) : {};
       return acc.kind ? snmpConvert(p, mib(acc.kind, ms)[String(p.address.oid).replace(/^\./, "")], s, ms) : null;
@@ -683,7 +766,7 @@
         }
         s.devState[d.id] = up ? "connected" : "unreachable";
         if (up) s.lastOk[d.id] = iso(ms);
-        const e = up ? null : cfg.type === "opcua" ? uaAccess(cfg).error : cfg.type === "dnp3" ? dnpAccess(cfg).error : cfg.type === "iec61850" ? iecAccess(cfg).error : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
+        const e = up ? null : cfg.type === "opcua" ? uaAccess(cfg).error : cfg.type === "dnp3" ? dnpAccess(cfg).error : cfg.type === "iec61850" ? iecAccess(cfg).error : cfg.type === "iec104" ? gwAccess(cfg).error : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
           : cfg.type === "snmp" ? snmpAccess(cfg, d).error : cfg.type === "udp"
           ? {code: "CONN_TIMEOUT", message: `no datagram from sender ${d.id} for ${cfg.connection.silence_timeout_s ?? 60} s`}
           : {code: "CONN_TIMEOUT", message: `No response from unit ${d.unit_id} within ${cfg.acquisition?.request_timeout_ms ?? 1000} ms`};
@@ -790,10 +873,10 @@
   ];
   function catalog() {
     const types = (window.__DEMO_CATALOG__ || []).map((t) => {
-      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
+      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850", "iec104"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
       return {...t, protocols, available: protocols.filter((p) => p.status === "available").length};
     });
-    return {types, available: ["dnp3", "iec61850", "modbus", "mqtt", "opcua", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
+    return {types, available: ["dnp3", "iec104", "iec61850", "modbus", "mqtt", "opcua", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
       {name: "Pump Station West", device_id: "pump-plc", ...PUMP, unit_id: PUMP.unit, tags: PUMP_TAGS},
       {type: "snmp", name: "Server room switch and UPS", community: "public", v3: SNMP_V3, trap_port: TRAP_PORT,
         devices: [{id: "server-room-sw", host: "127.0.0.1", port: 161, name: "Server room switch"}, {id: "ups-1", host: "127.0.0.1", port: 1161, name: "UPS 10 kVA"}]},
@@ -801,6 +884,8 @@
         subscriptions: [{topic_filter: "meters/+/telemetry", qos: 1}, {topic_filter: "spBv1.0/solar/#", qos: 0}]},
       {type: "iec61850", name: "Feeder 21 relay", host: IED.host, port: IED.port, ied_name: IED.name,
         description: "protection relay: measurements, breaker, overcurrent; trips every 4 min; 2 reports"},
+      {type: "iec104", name: "Substation 66/11 kV gateway", host: GW.host, port: GW.port, common_addresses: [GW.ca], device_time_zone: "UTC",
+        description: "busbar, transformer, breakers, alarms, tap changer, energy counter; trips every 5 min"},
       {type: "dnp3", name: "Feeder 3 RTU", host: RTU.host, port: RTU.port, outstation_address: RTU.outstation, master_address: RTU.master,
         description: "11 kV feeder: currents, voltages, power, breaker, alarms, counters; trips every 3 min"},
       {type: "opcua", name: "Bottling line 1 PLC", endpoint_url: UA.url, security_policy: "Basic256Sha256", security_mode: "SignAndEncrypt",
@@ -819,7 +904,7 @@
     if (!create && !existing) return [null, err(404, "NOT_FOUND", `source ${id} not found`)];
     const doc = {spec: "1.0", revision: existing ? existing.config.revision + 1 : 1, enabled: true, ...JSON.parse(JSON.stringify(body)), source_id: id};
     doc.spec = "1.0"; doc.revision = existing ? existing.config.revision + 1 : 1;
-    if (!["modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['dnp3', 'iec61850', 'modbus', 'mqtt', 'opcua', 'snmp', 'udp']`)];
+    if (!["modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850", "iec104"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['dnp3', 'iec104', 'iec61850', 'modbus', 'mqtt', 'opcua', 'snmp', 'udp']`)];
     const errors = doc.type === "modbus" ? validate(doc) : validateOther(doc);
     if (errors.length) return [null, err(422, "CFG_INVALID", "configuration is not valid", errors)];
     const taken = doc.points.map((p) => p.tag_id).filter((t) => tagOwner.has(t) && tagOwner.get(t) !== id);
@@ -842,6 +927,15 @@
     return pointValue(cfg, {tag_id: "adhoc", address: {...address, transform: "none"}, data_type}, now()) || {v: null, q: 4};
   }
   async function testConnection(cfg) {
+    if (cfg.type === "iec104") {
+      await sleep(rnd(200, 400));
+      const a = gwAccess(cfg), c = cfg.connection;
+      if (a.error) { await sleep(600); return {devices: [{id: "station", ok: false, latency_ms: a.host ? r(rnd(20, 40), 1) : (c.t0_s ?? 30) * 1000, error: a.error}]}; }
+      const counts = {};
+      Object.values(GW_OBJECTS).forEach(([t]) => { if (GW_FAM[t] !== "IT") counts[GW_LABEL[GW_FAM[t]]] = (counts[GW_LABEL[GW_FAM[t]]] || 0) + 1; });
+      return {devices: [{id: "station", ok: true, latency_ms: r(rnd(4, 12), 1), info: {host: `${a.host.host}:${a.host.port ?? 2404}`,
+        common_addresses: c.common_addresses.map(Number), objects: counts, tls: false}}]};
+    }
     if (cfg.type === "iec61850") {
       await sleep(rnd(200, 400));
       const a = iecAccess(cfg), c = cfg.connection;
@@ -1133,6 +1227,12 @@
       await sleep(rnd(150, 350));
       const a = iecAccess(doc);
       return a.error ? json({...res, ok: false, error: a.error}, 502) : json({...res, ok: true, result: iecBrowse(args.path)});
+    }
+    if (doc.type === "iec104") {
+      await sleep(rnd(250, 500));
+      const a = gwAccess(doc);
+      if (a.error && a.error.code !== "ADDR_INVALID") return json({...res, ok: false, error: a.error}, 502);
+      return json({...res, ok: true, result: gwBrowse(args.path)});
     }
     if (doc.type === "dnp3") {
       await sleep(rnd(200, 450));

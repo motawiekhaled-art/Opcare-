@@ -281,6 +281,7 @@
     if (c.type === "opcua") return h("div", {class: "step2"}, demoBoxFor("opcua"), basics, ...opcuaConnection(), testPanel());
     if (c.type === "dnp3") return h("div", {class: "step2"}, demoBoxFor("dnp3"), basics, ...dnp3Connection(), testPanel());
     if (c.type === "iec61850") return h("div", {class: "step2"}, demoBoxFor("iec61850"), basics, ...iecConnection(), testPanel());
+    if (c.type === "iec104") return h("div", {class: "step2"}, demoBoxFor("iec104"), basics, ...iec104Connection(), testPanel());
     let link;
     if (c.type === "modbus") {
       const tcp = conn.transport === "tcp";
@@ -335,6 +336,7 @@
   }
   function okText(d) {
     if (st.cfg.type === "iec61850") return `Connected · ${d.latency_ms} ms · ${(d.info?.logical_devices || []).join(", ")}${d.info?.vendor ? ` · ${d.info.vendor}${d.info.software ? " " + d.info.software : ""}` : ""} · ${d.info?.report_control_blocks ?? 0} report block(s), ${d.info?.datasets ?? 0} dataset(s)`;
+    if (st.cfg.type === "iec104") return `Connected · ${d.latency_ms} ms · ${d.info?.host}${d.info?.tls ? " · TLS" : ""} · common address ${(d.info?.common_addresses || []).join(", ")} · ${Object.entries(d.info?.objects || {}).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ") || "no objects"}`;
     if (st.cfg.type === "dnp3") return `Connected · ${d.latency_ms} ms · outstation ${d.info?.outstation}${d.info?.tls ? " · TLS" : ""} · ${Object.entries(d.info?.points || {}).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(", ") || "no points"} · IIN ${(d.info?.iin || []).join(", ")}`;
     if (st.cfg.type === "opcua") return `Connected · ${d.latency_ms} ms · ${d.info?.security} · ${d.info?.product || d.info?.server || "server"} · ${d.info?.server_state}`;
     if (st.cfg.type === "mqtt") return `Connected · MQTT ${d.info?.protocol}${d.info?.tls ? " · TLS" : ""} · ${Object.entries(d.info?.subscriptions || {}).map(([f, r]) => `${f}: ${r}`).join(", ")}`;
@@ -359,6 +361,7 @@
     if (st.cfg.type === "opcua") return step3opcua();
     if (st.cfg.type === "dnp3") return step3dnp3();
     if (st.cfg.type === "iec61850") return step3iec();
+    if (st.cfg.type === "iec104") return step3iec104();
     const c = st.cfg, devs = c.connection.devices.map((d) => [d.id, d.id]);
     const prefix = `${c.site || "site"}.${c.source_id || "source"}.`;
     const rows = c.points.map((p, i) => {
@@ -477,6 +480,7 @@
     if (cfg.type === "snmp") return `SNMP ${c.version === "3" ? "v3" : "v" + c.version}`;
     if (cfg.type === "mqtt") return `MQTT · ${String(c.broker_url || "").replace(/^mqtts?:\/\//, "")}`;
     if (cfg.type === "iec61850") return `IEC 61850 · ${c.ied_name || "?"} · ${c.host || "?"}`;
+    if (cfg.type === "iec104") return `IEC 104 · ${c.hosts?.[0]?.host || "?"}:${c.hosts?.[0]?.port || 2404} · CA ${(c.common_addresses || []).join(", ")}`;
     if (cfg.type === "dnp3") return `DNP3 · ${c.host || "?"}:${c.port || 20000} · outstation ${c.outstation_address}`;
     if (cfg.type === "opcua") return `OPC UA · ${String(c.endpoint_url || "").replace(/^opc\.tcp:\/\//, "")}`;
     return cfg.type;
@@ -488,6 +492,8 @@
       return c;
     }
     if (p.connector === "iec61850") return {host: "", port: p.port || 102, ied_name: "", timeout_ms: 10000};
+    if (p.connector === "iec104") return {hosts: [{host: "", port: p.port || 2404}], common_addresses: [1], originator_address: 0,
+      k: 12, w: 8, t0_s: 30, t1_s: 15, t2_s: 10, t3_s: 20, device_time_zone: "UTC"};
     if (p.connector === "dnp3") return {host: "", port: p.port || 20000, master_address: 1, outstation_address: 10, response_timeout_ms: 5000, keep_alive_s: 60};
     if (p.connector === "opcua") return {endpoint_url: "opc.tcp://", security_policy: "Basic256Sha256", security_mode: "SignAndEncrypt",
       auth: "anonymous", trusted_server_thumbprints: [], session_timeout_ms: 60000};
@@ -502,6 +508,7 @@
     if (type === "snmp") return {...base, default_scan_ms: 10000, request_timeout_ms: 2000};
     if (type === "mqtt") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000};
     if (type === "iec61850") return {...base, default_scan_ms: 1000, request_timeout_ms: 10000, reports: [], poll_unreported: true, gi_on_connect: true};
+    if (type === "iec104") return {...base, default_scan_ms: 1000, request_timeout_ms: 15000, gi_on_connect: true, gi_period_s: 900, counter_interrogation_period_s: 0};
     if (type === "dnp3") return {...base, default_scan_ms: 5000, request_timeout_ms: 5000, integrity_on_connect: true, integrity_period_s: 3600,
       class_polls: {class1_ms: 5000, class2_ms: 5000, class3_ms: 5000}, unsolicited: false};
     if (type === "opcua") return {...base, default_scan_ms: 1000, request_timeout_ms: 5000, mode: "subscribe", publishing_interval_ms: 1000};
@@ -523,6 +530,14 @@
         && (!conn.acse_auth || hasSecret(conn.acse_auth.password_ref, "password"))
         && (!tls.enabled || !(tls.client_cert_ref || st.secrets["client-cert"]) === !(tls.client_key_ref || st.secrets["client-key"]))
         && (c.acquisition.reports || []).every((r) => /^[A-Za-z0-9_]{1,64}\/[A-Za-z0-9_]+\.(BR|RP)\.[A-Za-z0-9_]+$/.test(r.rcb_ref || ""));
+    }
+    if (c.type === "iec104") {
+      const n = (x, lo, hi) => Number.isInteger(Number(x)) && Number(x) >= lo && Number(x) <= hi;
+      const tls = conn.tls || {}, hosts = conn.hosts || [];
+      return hosts.length >= 1 && hosts.every((x) => x.host && n(x.port ?? 2404, 1, 65535))
+        && (conn.common_addresses || []).length > 0 && conn.common_addresses.every((x) => n(x, 1, 65534))
+        && Number(conn.w ?? 8) <= Number(conn.k ?? 12) && Number(conn.t2_s ?? 10) < Number(conn.t1_s ?? 15) && Number(conn.t1_s ?? 15) < Number(conn.t3_s ?? 20)
+        && (!tls.enabled || !(tls.client_cert_ref || st.secrets["client-cert"]) === !(tls.client_key_ref || st.secrets["client-key"]));
     }
     if (c.type === "dnp3") {
       const n = (x, lo, hi) => Number.isInteger(Number(x)) && Number(x) >= lo && Number(x) <= hi;
@@ -559,6 +574,11 @@
       const reps = c.acquisition.reports || [];
       return `IED ${conn.ied_name} at ${conn.host}:${conn.port || 102}${conn.tls?.enabled ? " over TLS" : ""}${conn.acse_auth ? " · password" : ""} · ${reps.length ? `${reps.length} report(s): ${reps.map((r) => r.rcb_ref.split("/").pop()).join(", ")}` : "no reports (all values polled)"}`;
     }
+    if (c.type === "iec104") {
+      const a = c.acquisition, hs = conn.hosts || [];
+      return `${hs.map((x) => `${x.host}:${x.port || 2404}`).join(" (redundant: ") + (hs.length > 1 ? ")" : "")}${conn.tls?.enabled ? " over TLS" : ""} · common address ${conn.common_addresses.join(", ")} · `
+        + `interrogation ${a.gi_on_connect === false ? "" : "on connect"}${a.gi_period_s ? ` and every ${a.gi_period_s / 60} min` : ""} · counters ${a.counter_interrogation_period_s ? `every ${a.counter_interrogation_period_s / 60} min` : "not read"} · station time ${conn.device_time_zone || "UTC"}`;
+    }
     if (c.type === "dnp3") {
       const a = c.acquisition, cp = a.class_polls || {};
       return `${conn.host}:${conn.port || 20000}${conn.tls?.enabled ? " over TLS" : ""} · master ${conn.master_address ?? 1} → outstation ${conn.outstation_address} · ${a.unsolicited ? "unsolicited reports" : `class polls ${[1, 2, 3].map((k) => cp[`class${k}_ms`] ? `${k}: ${cp[`class${k}_ms`] / 1000} s` : null).filter(Boolean).join(", ") || "off"}`} · integrity ${a.integrity_period_s ? `every ${a.integrity_period_s / 60} min` : "on connect only"}`;
@@ -575,6 +595,7 @@
     if (c.type === "opcua") return "OPC UA server";
     if (c.type === "dnp3") return `DNP3 outstation ${c.connection.outstation_address}`;
     if (c.type === "iec61850") return `IED ${c.connection.ied_name}`;
+    if (c.type === "iec104") return `IEC 104 station, common address ${c.connection.common_addresses.join(", ")}`;
     if (c.type === "mqtt") return `Subscribed to ${conn.subscriptions.map((x) => x.topic_filter).join(", ")}`;
     return conn.devices.map((d) => `${d.id} (unit ${d.unit_id})`).join(", ");
   }
@@ -587,6 +608,7 @@
       : type === "snmp" ? `${d.devices.map((x) => `${x.host}:${x.port}`).join(", ")} · community "${d.community}"${d.v3 ? ` · v3 user ${d.v3.username}` : ""}`
       : type === "mqtt" ? `broker ${d.broker_url} · ${d.subscriptions.map((x) => x.topic_filter).join(", ")}`
       : type === "iec61850" ? `${d.host}:${d.port} · IED ${d.ied_name} · ${d.description}`
+      : type === "iec104" ? `${d.host}:${d.port} · common address ${d.common_addresses.join(", ")} · ${d.description}`
       : type === "dnp3" ? `${d.host}:${d.port} · outstation ${d.outstation_address}, master ${d.master_address} · ${d.description}`
       : type === "opcua" ? `${d.endpoint_url} · ${d.security_policy}/${d.security_mode} · user "${d.username}" — test, then trust the server certificate`
       : `${d.host}:${d.port}, unit ${d.unit_id}`;
@@ -602,6 +624,8 @@
       Object.assign(conn, {bind_host: "127.0.0.1", bind_port: d.bind_port, senders: d.senders.map((x) => ({...x}))});
     } else if (d.type === "iec61850") {
       Object.assign(conn, {host: d.host, port: d.port, ied_name: d.ied_name});
+    } else if (d.type === "iec104") {
+      Object.assign(conn, {hosts: [{host: d.host, port: d.port}], common_addresses: [...d.common_addresses], device_time_zone: d.device_time_zone || "UTC"});
     } else if (d.type === "dnp3") {
       Object.assign(conn, {host: d.host, port: d.port, outstation_address: d.outstation_address, master_address: d.master_address});
     } else if (d.type === "opcua") {
@@ -637,7 +661,7 @@
       if (conn.tls?.enabled) out.push(["ca-cert", conn.tls, "ca_cert_ref"], ["client-cert", conn.tls, "client_cert_ref"], ["client-key", conn.tls, "client_key_ref"]);
       return out;
     }
-    if (st.cfg.type === "dnp3") {
+    if (st.cfg.type === "dnp3" || st.cfg.type === "iec104") {
       if (conn.tls?.enabled) out.push(["ca-cert", conn.tls, "ca_cert_ref"], ["client-cert", conn.tls, "client_cert_ref"], ["client-key", conn.tls, "client_key_ref"]);
       return out;
     }
@@ -868,6 +892,9 @@
     if (st.cfg.type === "iec61850") {
       p.tag_id = uniqueTag(a.object_ref.split("/").pop().replace(/\.(mag|cVal|stVal|general|f|i)(?=\.|$)/g, "").replace(/\./g, "-"));
     }
+    if (st.cfg.type === "iec104") {
+      p.tag_id = uniqueTag(`${(IEC104_FAM[a.type] || "io").toLowerCase()}-${a.ca}-${a.ioa}`);
+    }
     if (st.cfg.type === "dnp3") {
       p.tag_id = uniqueTag(`${({binary_input: "bi", double_bit_binary_input: "dbi", binary_output_status: "bo", counter: "cnt", frozen_counter: "fcnt", analog_input: "ai", analog_output_status: "ao"})[a.group]}-${a.index}`);
       if (item.data_type === "int" && a.group.startsWith("analog")) p.data_type = "float";
@@ -945,6 +972,87 @@
     const reps = (c.acquisition.reports || []).map((r) => r.rcb_ref.split("/").pop()).join(", ");
     return h("div", {class: "step3"}, tools, reps ? h("p", {class: "small"}, h("b", {}, "Reports in use: "), reps) : null, browsePanel(), errorList(),
       tagTable(["Tag ID", "Object reference", "FC", "Type", "Unit", "Scale ×", "Offset +", "Deadband", canRead ? "Value" : "", ""], rows, [250, 360, 150, 120, 80, 80, 80, 80, canRead ? 100 : 10, 44]));
+  }
+
+  // ---------------- step 2 and 3: IEC 60870-5-104 master (spec 15.5)
+  const IEC104_TYPES = [["", "Any (as sent)"], ["M_SP_NA_1", "Single point (M_SP)"], ["M_DP_NA_1", "Double point (M_DP)"],
+    ["M_ST_NA_1", "Step position (M_ST)"], ["M_BO_NA_1", "Bitstring 32 (M_BO)"], ["M_ME_NA_1", "Normalised value (M_ME_NA)"],
+    ["M_ME_NB_1", "Scaled value (M_ME_NB)"], ["M_ME_NC_1", "Short float (M_ME_NC)"], ["M_IT_NA_1", "Integrated total (M_IT)"]];
+  const IEC104_FAM = {M_SP_NA_1: "SP", M_SP_TB_1: "SP", M_DP_NA_1: "DP", M_DP_TB_1: "DP", M_ST_NA_1: "ST", M_ST_TB_1: "ST",
+    M_BO_NA_1: "BO", M_BO_TB_1: "BO", M_ME_NA_1: "NA", M_ME_TD_1: "NA", M_ME_ND_1: "NA", M_ME_NB_1: "NB", M_ME_TE_1: "NB",
+    M_ME_NC_1: "NC", M_ME_TF_1: "NC", M_IT_NA_1: "IT", M_IT_TB_1: "IT"};
+  const iec104DataType = (type) => ({SP: "bool", DP: "enum", ST: "int", BO: "int", IT: "int"})[IEC104_FAM[type]] || "float";
+  const IEC104_ZONES = ["UTC", "Africa/Cairo", "Asia/Riyadh", "Asia/Dubai", "Asia/Kuwait", "Asia/Qatar", "Africa/Casablanca", "Africa/Lagos",
+    "Europe/London", "Europe/Berlin", "Europe/Istanbul", "Asia/Kolkata", "Asia/Shanghai"];
+  function iec104Connection() {
+    const conn = st.cfg.connection, acq = st.cfg.acquisition, tls = conn.tls || {};
+    conn.hosts = conn.hosts?.length ? conn.hosts : [{host: "", port: 2404}];
+    const num = (id, val, set, attrs) => inp(id, val, (v) => set(v === "" ? undefined : Number(v)), {type: "number", ...attrs});
+    const [h1, h2] = conn.hosts;
+    const zones = IEC104_ZONES.includes(conn.device_time_zone || "UTC") ? IEC104_ZONES : [conn.device_time_zone, ...IEC104_ZONES];
+    const station = h("fieldset", {}, h("legend", {}, "Station (RTU, gateway or substation computer)"), h("div", {class: "form-grid"},
+      field("IP address or host", inp("f-host", h1.host, (v) => { h1.host = v.trim(); }, {placeholder: "10.20.1.50"})),
+      field("TCP port", num("f-port", h1.port ?? 2404, (v) => { h1.port = v; }, {min: 1, max: 65535}), "IEC 104 normally uses 2404."),
+      field("Common address(es)", inp("f-cas", (conn.common_addresses || []).join(", "), (v) => {
+        conn.common_addresses = v.split(/[\s,;]+/).filter(Boolean).map(Number); }, {placeholder: "1"}),
+        "The station's ASDU address (CASDU), 1–65534. Several, separated by commas, for a gateway with several stations."),
+      field("Originator address", num("f-oa", conn.originator_address ?? 0, (v) => { conn.originator_address = v ?? 0; }, {min: 0, max: 255}),
+        "Usually 0. Some stations expect the address of their master."),
+      field("Station clock time zone", sel("f-tz", conn.device_time_zone || "UTC", zones.map((z) => [z, z]), (v) => { conn.device_time_zone = v; }),
+        "Time tags (CP56Time2a) carry the station's local time; most grid stations run on UTC.")),
+      field("Redundant link", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-redundant", checked: Boolean(h2),
+        onchange: (e) => { if (e.target.checked) conn.hosts.push({host: "", port: 2404}); else conn.hosts.splice(1); render(); }}),
+        " A second address of the same station, used only when the first does not answer")),
+      h2 ? h("div", {class: "form-grid"},
+        field("Second IP address or host", inp("f-host2", h2.host, (v) => { h2.host = v.trim(); }, {placeholder: "10.20.2.50"})),
+        field("Second TCP port", num("f-port2", h2.port ?? 2404, (v) => { h2.port = v; }, {min: 1, max: 65535}))) : null,
+      field("Secure IEC 104 (TLS, IEC 62351-3)", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-104-tls", checked: Boolean(tls.enabled),
+        onchange: (e) => { if (e.target.checked) conn.tls = {enabled: true}; else delete conn.tls; render(); }}), " The station or its gateway listens with TLS")),
+      tls.enabled ? h("div", {class: "form-grid"},
+        secretArea("CA certificate (PEM)", "ca-cert", conn.tls, "ca_cert_ref", "The CA that signed the station's certificate. Empty = the system's trusted CAs."),
+        secretArea("Client certificate (PEM, optional)", "client-cert", conn.tls, "client_cert_ref", "If the station asks for a client certificate."),
+        secretArea("Client private key (PEM, optional)", "client-key", conn.tls, "client_key_ref"),
+        field("Certificate check", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-insecure", checked: Boolean(tls.insecure_skip_verify),
+          onchange: (e) => { if (e.target.checked) conn.tls.insecure_skip_verify = true; else delete conn.tls.insecure_skip_verify; render(); }}), " Skip (testing only — not safe)"))) : null);
+    const link = h("fieldset", {}, h("legend", {}, "Link parameters"), h("details", {}, h("summary", {}, "k, w and timers t0–t3 (the IEC 104 defaults suit most stations)"), h("div", {class: "form-grid"},
+      field("k (max. unconfirmed frames sent)", num("f-k", conn.k ?? 12, (v) => { conn.k = v; }, {min: 1, max: 32767})),
+      field("w (acknowledge after frames received)", num("f-w", conn.w ?? 8, (v) => { conn.w = v; }, {min: 1, max: 32767}), "At most k; IEC 60870-5-104 recommends 2/3 of k."),
+      field("t0 connect timeout (s)", num("f-t0", conn.t0_s ?? 30, (v) => { conn.t0_s = v; }, {min: 1, max: 255})),
+      field("t1 acknowledgement timeout (s)", num("f-t1", conn.t1_s ?? 15, (v) => { conn.t1_s = v; }, {min: 1, max: 255})),
+      field("t2 acknowledge within (s)", num("f-t2", conn.t2_s ?? 10, (v) => { conn.t2_s = v; }, {min: 1, max: 255}), "Must be less than t1."),
+      field("t3 link test after idle (s)", num("f-t3", conn.t3_s ?? 20, (v) => { conn.t3_s = v; }, {min: 1, max: 172800}), "Must be more than t1."))));
+    const timing = h("fieldset", {}, h("legend", {}, "How values are collected"), h("div", {class: "form-grid"},
+      field("Interrogate on connect", h("label", {class: "check"}, h("input", {type: "checkbox", id: "f-gi-connect", checked: acq.gi_on_connect !== false,
+        onchange: (e) => { acq.gi_on_connect = e.target.checked; }}), " General interrogation after connecting (all current values)")),
+      field("General interrogation every (s)", num("f-gi-period", acq.gi_period_s ?? 900, (v) => { acq.gi_period_s = v ?? 0; }, {min: 0, max: 86400}),
+        "Changes come spontaneously in between. 0 = only after connecting and when the station restarts."),
+      field("Read counters every (s)", num("f-ci-period", acq.counter_interrogation_period_s ?? 0, (v) => { acq.counter_interrogation_period_s = v ?? 0; }, {min: 0, max: 86400}),
+        "Counter interrogation for energy and pulse counters (integrated totals). 0 = off.")),
+      h("p", {class: "muted small"}, "Read-only: the connector only interrogates and reads. It never sends commands or set-points, never freezes or resets counters "
+        + "and never sets the station's clock."));
+    return [station, link, timing];
+  }
+  function step3iec104() {
+    const c = st.cfg, canRead = st.mode === "edit" && st.sourceRunning, cas = c.connection.common_addresses || [1];
+    const rows = c.points.map((p, i) => h("tr", {class: st.errors.some((e) => e.row === i) ? "row-error" : ""},
+      h("td", {}, inp(`p-tag-${i}`, p.tag_id, (v) => { p.tag_id = v.toLowerCase(); }, {"aria-label": "Tag ID", class: TAG_RE.test(p.tag_id) ? "" : "invalid"})),
+      h("td", {}, cas.length > 1 ? sel(`p-ca-${i}`, String(p.address.ca), cas.map((x) => [String(x), String(x)]), (v) => { p.address.ca = Number(v); })
+        : inp(`p-ca-${i}`, p.address.ca, (v) => { p.address.ca = v === "" ? undefined : Number(v); }, {type: "number", min: 1, max: 65534, "aria-label": "Common address"})),
+      h("td", {}, inp(`p-ioa-${i}`, p.address.ioa, (v) => { p.address.ioa = v === "" ? undefined : Number(v); }, {type: "number", min: 1, max: 16777215, "aria-label": "Information object address"})),
+      h("td", {}, sel(`p-asdu-${i}`, p.address.type || "", IEC104_TYPES, (v) => { if (v) { p.address.type = v; p.data_type = iec104DataType(v); } else delete p.address.type;
+        if (!numeric(p)) { delete p.scaling; delete p.deadband; delete p.unit; } })),
+      typeCell(p, i), ...scaleCells(p, i),
+      h("td", {class: "read-cell"}, canRead ? h("button", {type: "button", class: "btn ghost", onclick: () => readNow(i)}, p._read ?? "Read") : null),
+      removeCell(c, p, i)));
+    const tools = h("div", {class: "toolbar"},
+      h("button", {type: "button", class: "btn primary", id: "add-tag", onclick: () => { const last = c.points[c.points.length - 1];
+        const a = last ? {...last.address, ioa: Number(last.address.ioa) + 1} : {ca: cas[0], ioa: 1};
+        c.points.push({tag_id: uniqueTag(`point-${c.points.length + 1}`), address: a, data_type: a.type ? iec104DataType(a.type) : "float"}); render(); }}, "Add tag"),
+      h("button", {type: "button", class: "btn", id: "discover", disabled: st.browse?.busy, onclick: () => discover({})}, st.browse?.busy ? "Reading…" : "Read objects from station"),
+      h("span", {class: "muted small"}, "Runs a general and a counter interrogation once and lists every information object the station returns, with its current value; "
+        + "click Add, or Add all for a type. Use the station's signal list to name the tags."));
+    return h("div", {class: "step3"}, tools, browsePanel(), errorList(),
+      tagTable(["Tag ID", "CA", "IOA", "ASDU type", "Type", "Unit", "Scale ×", "Offset +", "Deadband", canRead ? "Value" : "", ""], rows, [250, 90, 110, 210, 120, 80, 80, 80, 80, canRead ? 100 : 10, 44]));
   }
 
   // ---------------- step 2 and 3: DNP3 master (spec 15.6)
@@ -1243,8 +1351,9 @@
           h("b", {}, `${it.kind === "folder" ? "📁" : "▸"} ${it.name}`)), h("span", {class: "muted small"}, ` · ${it.kind}`)),
           h("td", {}, h("button", {type: "button", class: "btn ghost", onclick: () => browseInto(it)}, "Open")));
       }
-      if (st.cfg.type === "dnp3" && it.kind === "object") {
-        const todo = items.filter((x) => x.kind === "variable" && x.address.group === it.path && !have.has(JSON.stringify(x.address)));
+      if ((st.cfg.type === "dnp3" || st.cfg.type === "iec104") && it.kind === "object") {
+        const inGroup = (x) => st.cfg.type === "dnp3" ? x.address.group === it.path : `${x.address.ca}/${IEC104_FAM[x.address.type]}` === it.path;
+        const todo = items.filter((x) => x.kind === "variable" && inGroup(x) && !have.has(JSON.stringify(x.address)));
         return h("tr", {class: "group"}, h("td", {colspan: 3}, h("b", {}, it.name), h("span", {class: "muted small"}, ` · ${it.info?.sample || ""}`)),
           h("td", {}, todo.length ? h("button", {type: "button", class: "btn", "data-add-group": it.path, onclick: () => { todo.forEach((x) => addFromBrowse(x, false)); render(); }}, `Add all ${todo.length}`) : null));
       }
@@ -1276,7 +1385,7 @@
     return h("div", {class: "browse"}, crumbs, h("div", {class: "row"}, h("b", {}, b.busy ? "Reading…" : NAV_TYPES.has(st.cfg.type) && !items.some((i) => i.kind === "variable") ? `${items.length} item(s)` : `${items.filter((i) => i.kind === "variable").length} value(s) found`),
       b.next ? h("button", {type: "button", class: "btn", onclick: () => discover({path: b.next, max_items: 200, append: true})}, "More") : null, close),
       items.length ? h("div", {class: "table-wrap plain browse-list"}, h("table", {class: "grid compact"}, h("thead", {}, h("tr", {}, ["Value", "Type", "Sample", ""].map((x) => h("th", {}, x)))), h("tbody", {}, rows)))
-        : b.busy ? null : h("p", {class: "muted"}, st.cfg.type === "dnp3" ? "The outstation reported no points in its class 0 data." : st.cfg.type === "iec61850" ? "Nothing here." : st.cfg.type === "opcua" ? "This node has no child objects or variables." : st.cfg.type === "udp" ? "Nothing arrived. Check the device's destination address and port, and the edge node's firewall." : "Nothing found under this OID."));
+        : b.busy ? null : h("p", {class: "muted"}, st.cfg.type === "dnp3" ? "The outstation reported no points in its class 0 data." : st.cfg.type === "iec104" ? "The station returned no information objects to interrogation." : st.cfg.type === "iec61850" ? "Nothing here." : st.cfg.type === "opcua" ? "This node has no child objects or variables." : st.cfg.type === "udp" ? "Nothing arrived. Check the device's destination address and port, and the edge node's firewall." : "Nothing found under this OID."));
   }
 
   // ------------------------------------------------------------------ step 4: review and save
@@ -1317,6 +1426,7 @@
       h("dt", {}, c.type === "udp" ? "Senders" : "Devices"), h("dd", {}, devicesSummary(c)),
       h("dt", {}, "Tags"), h("dd", {}, c.type === "udp" ? `${c.points.length} tag(s), updated whenever a datagram arrives`
         : c.type === "iec61850" ? `${c.points.length} tag(s): ${(c.acquisition.reports || []).length ? "values in the reports' datasets are sent by the IED on change (general interrogation on connect)" : "no reports"}${c.acquisition.poll_unreported === false ? "" : `, the others read every ${c.acquisition.default_scan_ms} ms`}`
+        : c.type === "iec104" ? `${c.points.length} tag(s): general interrogation on connect${c.acquisition.gi_period_s ? ` and every ${c.acquisition.gi_period_s / 60} min` : ""}, changes sent spontaneously by the station with its time tags${c.acquisition.counter_interrogation_period_s ? `, counters read every ${c.acquisition.counter_interrogation_period_s / 60} min` : ""}`
         : c.type === "dnp3" ? `${c.points.length} tag(s): full read on connect${c.acquisition.integrity_period_s ? ` and every ${c.acquisition.integrity_period_s / 60} min` : ""}, changes ${c.acquisition.unsolicited ? "reported by the outstation" : "fetched by class polls"} with the outstation's time stamps`
         : c.type === "opcua" && (c.acquisition.mode || "subscribe") === "subscribe" ? `${c.points.length} tag(s), reported on change (server checks every ${c.acquisition.publishing_interval_ms || 1000} ms)`
         : `${c.points.length} tag(s), read every ${c.acquisition.default_scan_ms} ms`),

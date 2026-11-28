@@ -3,8 +3,8 @@
 | Item | Value |
 |---|---|
 | Document | OSS-DAQ-CON-001 |
-| Spec version | **1.0.0-draft.3** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9); draft.3 lists the DNP3 link-layer frames (15.6) and limits secret `*_ref` fields to `connection` (3) |
-| Date | 3 November 2026 |
+| Spec version | **1.0.0-draft.4** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9); draft.3 lists the DNP3 link-layer frames (15.6) and limits secret `*_ref` fields to `connection` (3); draft.4 makes `iec104` an ordinary connector with Opcare's own stack (2 rule 7, 15.5), allows counter interrogation only without freeze or reset, adds browse by interrogation, the guard request names and the `conn.failover` event (10) |
+| Date | 28 November 2026 |
 | Parent documents | MVP Scope OSS-DAQ-MVP-001 v0.2 · Architecture OSS-DAQ-ARC-001 v0.1 (section 7) |
 | Status | Draft for engineering review |
 | Owner | Opcare Smart Services |
@@ -60,7 +60,7 @@ Where this text and a schema disagree, **the schema wins** and the text must be 
 4. The container **MUST NOT** open listening ports. All communication is outbound to the local broker and to field devices. **Exception — listener connectors:** `udp` (section 15.8) and `snmp` with traps enabled (section 15.9) **MAY** bind the one UDP port named in their configuration, and no other. They **MUST** drop every datagram whose source address is not in their configuration (counted in diagnostics, never published). Ports below 1024 (e.g. syslog 514, SNMP traps 162) cannot be bound by the non-root user: the connector binds a port ≥ 1024 and the edge agent maps the standard port to it (e.g. `-p 514:5514/udp`).
 5. **One container runs exactly one source.** Scaling is done by running more containers.
 6. The image **MUST** carry OCI labels `org.opencontainers.image.version` and `org.opencontainers.image.licenses` (SPDX expression).
-7. **GPL rule.** A connector that links GPL code (today: `iec104` with lib60870) **MUST** live in its own repository with its own licence file, **MUST** depend on the platform only through this specification (MQTT messages), and **MUST NOT** import any code from the closed platform repositories, including `sdk-python`. Such a connector implements the generic behaviour of this spec itself (the C SDK is released with it under GPL).
+7. **GPL rule.** A connector that links GPL code (none today: `iec104` uses Opcare's own IEC 104 stack since draft.4) **MUST** live in its own repository with its own licence file, **MUST** depend on the platform only through this specification (MQTT messages), and **MUST NOT** import any code from the closed platform repositories, including `sdk-python`. Such a connector implements the generic behaviour of this spec itself (the C SDK is released with it under GPL).
 
 ### 2.1 Manifest (`/opcare/manifest.json`)
 
@@ -362,6 +362,7 @@ Connectors publish operational events to the `event` topic (schema `event.schema
 | `conn.connected` | info | A device connection is established |
 | `conn.lost` | medium | A device connection is lost |
 | `conn.auth_failed` | high | Device or TLS authentication failed |
+| `conn.failover` | medium | The connector uses a redundant connection because the first one failed (e.g. the second IEC 104 host) |
 | `config.applied` | info | A configuration revision is applied (`attrs.revision`) |
 | `config.rejected` | medium | A configuration was rejected (`attrs.revision`, `attrs.errors`) |
 | `device.restart` | low | The device reports it restarted (e.g. DNP3 IIN1.7) |
@@ -572,7 +573,7 @@ For IoT devices that publish to a **client's** broker (not the Opcare local brok
 
 **Allowed requests**: Initiate, Conclude, Abort, GetNameList, GetVariableAccessAttributes, GetNamedVariableListAttributes, Read, InformationReport (receive), file services **not** allowed. **Allowed writes (reporting setup only)** to report control block attributes: `Resv`, `ResvTms`, `RptEna`, `GI`, `TrgOps`, `IntgPd`, `BufTm`, `OptFlds`, `EntryID` (for buffered-report resynchronisation). **Forbidden**: any other Write, all control services (Select, SelectWithValue, Operate, Cancel, TimeActivatedOperate), SetEditSG/ConfirmEditSG, SetActiveSG, dataset creation/deletion, `PurgeBuf`, file services, log services that modify.
 
-### 15.5 IEC 60870-5-104 master — type `iec104` (GPL connector)
+### 15.5 IEC 60870-5-104 master — type `iec104`
 
 **connection**: `{hosts: [{host, port (2404)}] (1–2; second = redundant link, used only if the first fails), common_addresses: [int] (1–65534), originator_address (0), k (12), w (8), t0_s (30), t1_s (15), t2_s (10), t3_s (20), tls?: {enabled, client_cert_ref, client_key_ref, ca_cert_ref}}`. Parameters as in IEC 60870-5-104 defaults.
 
@@ -588,18 +589,18 @@ For IoT devices that publish to a **client's** broker (not the Opcare local brok
 | M_DP_NA_1, M_DP_TB_1 (double point) | `enum` | 0 = intermediate, 1 = off, 2 = on, 3 = indeterminate |
 | M_ST_NA_1, M_ST_TB_1 (step position) | `int` | value −64…63, transient flag in `f: ["TRANSIENT"]` |
 | M_BO_NA_1, M_BO_TB_1 (bitstring 32) | `int` | unsigned 32-bit |
-| M_ME_NA_1, M_ME_TD_1 (normalised) | `float` | −1.0 … +1−2⁻¹⁵ before scaling |
+| M_ME_NA_1, M_ME_TD_1, M_ME_ND_1 (normalised; ND has no quality) | `float` | −1.0 … +1−2⁻¹⁵ before scaling |
 | M_ME_NB_1, M_ME_TE_1 (scaled) | `int` or `float` | signed 16-bit before scaling |
 | M_ME_NC_1, M_ME_TF_1 (short float) | `float` | IEEE 754 |
 | M_IT_NA_1, M_IT_TB_1 (integrated totals) | `int` | counter reading; sequence number in `f` |
 
 **Timestamps**: types with CP56Time2a → `ts` from the time tag; if its IV (invalid) bit is set use `rx` and `f: ["CLOCK"]`. CP56Time2a carries no time zone: `connection.device_time_zone` (default `UTC`, IANA name) converts it to UTC.
 
-**Quality** (QDS / SIQ / DIQ bits): none set → 192 · IV → 0 · NT → 68 · SB → 216 · BL → 64 · OV → 84. Counter CY/CA/IV flags: IV → 0, CA → 64. Link down or STARTDT not confirmed → 24.
+**Quality** (QDS / SIQ / DIQ bits): none set → 192 · IV → 0 · NT → 68 · SB → 216 · BL → 64 · OV → 84. Counter CY/CA/IV flags: IV → 0, CA → 64. Link down or STARTDT not confirmed → 24. When several bits are set the first in the order IV, NT, OV, BL, SB decides. Flags: `INVALID`, `NOT_TOPICAL`, `OVERFLOW`, `BLOCKED`, `SUBSTITUTED`, `TRANSIENT` (step position), `ADJUSTED`, `CARRY`, `SEQ:n` (counters). ASDUs with the T (test) bit → at most 64 with flag `TEST`. A configured point that the general interrogation does not return → 4 with flag `NOT_IN_STATION` (`UNKNOWN_CA` when the station rejects its common address) until a value for it arrives; counters are only expected from counter interrogation. A point whose `type` names another family than the one received → 4 with `TYPE_MISMATCH`. End of initialisation (M_EI_NA_1, cause 4) → event `device.restart` and a new general interrogation.
 
-**Browse**: not supported (IOA lists are imported by the platform). `read_now` uses C_RD_NA_1 (read command).
+**Browse** (draft.4): lists what the station returns to general and counter interrogation of each common address, grouped by type; `path` is empty, `CA` or `CA/FAMILY` (`SP`, `DP`, `ST`, `BO`, `NA`, `NB`, `NC`, `IT`). Large IOA lists can still be imported by the platform. `read_now` uses C_RD_NA_1 (read command); a negative answer (unknown IOA, read not supported) → quality 4, no answer within t1 → 24.
 
-**Allowed requests**: U-frames STARTDT act, STOPDT act, TESTFR act/con; S-frames; I-frames with type **C_IC_NA_1 (100)** general interrogation, **C_CI_NA_1 (101)** counter interrogation, **C_RD_NA_1 (102)** read. **Forbidden**: types 45–64 (all single/double/regulating/set-point/bitstring commands, with or without time tag), C_CS_NA_1 (103) clock sync, C_TS_NA_1 (104) test, C_RP_NA_1 (105) reset process, C_CD_NA_1 (106) delay acquisition, C_TS_TA_1 (107) test with time tag, P_ME_* / P_AC_NA_1 (110–113) parameters, F_* (120–127) file transfer.
+**Allowed requests** (guard names in brackets): U-frames STARTDT act (`STARTDT_ACT`), STOPDT act (`STOPDT_ACT`), TESTFR act/con (`TESTFR_ACT`, `TESTFR_CON`); S-frames (`S`); I-frames with type **C_IC_NA_1 (100)** general interrogation, **C_CI_NA_1 (101)** counter interrogation **with FRZ = 0 only** (read the counters; QCC FRZ 1–3 freeze and/or reset the counters in the device and are blocked as `C_CI_NA_1:FREEZE`), **C_RD_NA_1 (102)** read. With two `hosts`, the second is used only when the first does not answer (event `conn.failover`); a session always starts with the first. **Forbidden**: types 45–64 (all single/double/regulating/set-point/bitstring commands, with or without time tag), C_CS_NA_1 (103) clock sync, C_TS_NA_1 (104) test, C_RP_NA_1 (105) reset process, C_CD_NA_1 (106) delay acquisition, C_TS_TA_1 (107) test with time tag, P_ME_* / P_AC_NA_1 (110–113) parameters, F_* (120–127) file transfer.
 
 ### 15.6 DNP3 master over TCP — type `dnp3`
 

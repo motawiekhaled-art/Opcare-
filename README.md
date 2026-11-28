@@ -13,16 +13,17 @@ connectors/mqtt/            MQTT subscriber 1.0.0 (3.1.1 / 5.0, TLS): JSON, plai
 connectors/opcua/           OPC UA client 1.0.0 with Opcare's own stack: all four security policies, subscriptions, browse
 connectors/dnp3/            DNP3 master 1.0.0 with Opcare's own stack (TCP / TLS): integrity, class polls, unsolicited, event time
 connectors/iec61850/        IEC 61850 MMS client 1.0.0 with Opcare's own stack: buffered / unbuffered reports, GI, quality and time
+connectors/iec104/          IEC 60870-5-104 master 1.0.0 with Opcare's own stack: interrogation, spontaneous data with time tags, counters, redundant link
 connectors/udp/             UDP listener 1.0.0: NMEA 0183, CSV, JSON, binary telegrams and syslog pushed by devices
 connectors/snmp/            SNMP manager 1.0.0 (v1, v2c, v3): switches, servers, UPSs, firewalls; traps as events
 platform/                   Central platform: ingest, storage, configuration service, API, live-values and configuration screens
 edge/                       Edge agent: starts a connector per configured source, tests configurations before saving
-tools/simulators/           Device simulators (Modbus TCP, SNMP agent, MQTT broker, OPC UA server, DNP3 outstation, IEC 61850 server from SCL)
-tools/demo/                 One-command demo: substation, pump station, switch + UPS, GNSS/weather station, water meters + solar plant (MQTT), bottling line PLC (OPC UA), feeder RTU (DNP3), feeder relay (IEC 61850)
+tools/simulators/           Device simulators (Modbus TCP, SNMP agent, MQTT broker, OPC UA server, DNP3 outstation, IEC 61850 server from SCL, IEC 104 station)
+tools/demo/                 One-command demo: substation, pump station, switch + UPS, GNSS/weather station, water meters + solar plant (MQTT), bottling line PLC (OPC UA), feeder RTU (DNP3), feeder relay (IEC 61850), substation gateway (IEC 104)
 ```
 
 Still to come: alarms, the container-based production edge agent, other connectors,
-`video/`, `deploy/`. The IEC 104 connector lives in its own GPL repository (`opcare-connector-iec104`).
+`video/`, `deploy/`.
 
 ## Try it in the browser (nothing to install)
 

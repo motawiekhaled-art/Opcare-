@@ -20,7 +20,7 @@ from daq_platform.catalog import CATALOG, TEMPLATES  # noqa: E402
 
 BANNER = ('<div class="demo-banner" role="note"><strong>Interactive demo</strong> &middot; simulated devices run in your '
           'browser; changes reset when you reload. Admins manage users in the <a href="#admin">Admin</a> tab. Try <a href="#new-source">+ New source</a> &rarr; '
-          '<b>Energy &amp; Utilities</b> &rarr; IEC 61850 (feeder relay, reports) or DNP3 (feeder RTU), <b>Industrial PLC</b> &rarr; OPC UA (bottling line: certificate, trust, browse), <b>IT &amp; Network</b> &rarr; SNMP (switch + UPS), <b>IoT Sensors</b> &rarr; MQTT / Sparkplug B (water meters + solar plant) or UDP datagrams (GPS + weather station), '
+          '<b>Energy &amp; Utilities</b> &rarr; IEC 61850 (feeder relay, reports), IEC 104 (substation gateway) or DNP3 (feeder RTU), <b>Industrial PLC</b> &rarr; OPC UA (bottling line: certificate, trust, browse), <b>IT &amp; Network</b> &rarr; SNMP (switch + UPS), <b>IoT Sensors</b> &rarr; MQTT / Sparkplug B (water meters + solar plant) or UDP datagrams (GPS + weather station), '
           'or Energy &amp; Utilities &rarr; Modbus TCP (pump station) &rarr; &ldquo;Use these settings&rdquo;.</div>')
 BANNER_CSS = """
 .demo-banner{background:#FFF7E0;color:#5A4300;border-bottom:1px solid #F0D58A;padding:8px 24px;font-size:13px;line-height:1.4}

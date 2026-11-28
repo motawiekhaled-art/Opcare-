@@ -51,6 +51,12 @@ DNP3_DEVICES = ["Substation RTUs and gateways: SEL RTAC, GE D20/D400, ABB RTU500
                 "Recloser and capacitor-bank controllers, distribution automation and feeder RTUs",
                 "SCADA front ends and protocol gateways (Triangle MicroWorks SCADA Data Gateway, Kepware DNP3)"]
 DNP3 = P("DNP3", "IEEE 1815-2012 (DNP3 over TCP, TLS per IEC 62351-3)", "dnp3", {}, 20000, DNP3_DEVICES)
+IEC104_DEVICES = ["Substation RTUs and gateways: ABB RTU500 / RTU560, Siemens SICAM A8000 / AK3, GE D20 / D400, Hitachi Energy",
+                  "Schneider Saitel DP / Easergy T300, Efacec, NARI, NR Electric, Arteche, Kalkitech SYNC gateways",
+                  "Protection relays and bay controllers with an IEC 104 interface",
+                  "Wind, solar and battery plant controllers reporting to grid operators (TSO / DSO links)",
+                  "Control-centre front ends and protocol gateways (Triangle MicroWorks SCADA Data Gateway, Kepware)"]
+IEC104 = P("IEC 60870-5-104", "IEC 60870-5-104 (over TCP, TLS per IEC 62351-3)", "iec104", {}, 2404, IEC104_DEVICES)
 MQTT = P("MQTT / Sparkplug B", "ISO/IEC 20922, OASIS MQTT 5.0, Eclipse Sparkplug 3.0", "mqtt", {}, 1883, MQTT_DEVICES)
 SNMP_V2C = P("SNMP v1 / v2c", "RFC 1157, RFC 3416 (community)", "snmp", {"version": "2c"}, 161, SNMP_DEVICES)
 SNMP_V3 = P("SNMPv3 (secure)", "RFC 3414 USM, RFC 3826 AES, RFC 7860", "snmp", {"version": "3"}, 161, SNMP_DEVICES)
@@ -61,7 +67,7 @@ CATALOG = [
                     "generation plants and water networks.",
      "standards": ["IEC 61850", "IEC 60870-5-104", "IEEE 1815 (DNP3)", "IEC 62351"],
      "protocols": [IEC61850,
-                   P("IEC 60870-5-104", "IEC 60870-5-104", "iec104", port=2404),
+                   IEC104,
                    DNP3,
                    OPCUA,
                    P("Modbus TCP", "Modbus Application Protocol v1.1b3", "modbus", {"transport": "tcp"}, 502),

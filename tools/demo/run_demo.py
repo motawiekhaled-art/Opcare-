@@ -35,7 +35,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 for p in ("platform", "edge", "connectors/sdk-python", "connectors/modbus", "connectors/udp", "connectors/snmp", "connectors/mqtt",
-          "connectors/opcua", "connectors/dnp3", "connectors/iec61850", "tools/simulators"):
+          "connectors/opcua", "connectors/dnp3", "connectors/iec61850", "connectors/iec104", "tools/simulators"):
     sys.path.insert(0, str(ROOT / p))
 
 import uvicorn  # noqa: E402
@@ -60,6 +60,8 @@ from dnp3_connector import Dnp3Connector  # noqa: E402
 from iec61850_connector import Iec61850Connector  # noqa: E402
 from iec61850_server import Iec61850Server  # noqa: E402
 from dnp3_outstation import Dnp3Outstation  # noqa: E402
+from iec104_connector import Iec104Connector  # noqa: E402
+from iec104_station import Iec104Station  # noqa: E402
 from opcua_connector import OpcUaConnector  # noqa: E402
 from opcua_server import OpcUaServer  # noqa: E402
 from opcare_connector_sdk import SchemaValidator  # noqa: E402
@@ -296,6 +298,55 @@ async def drive_relay(srv: Iec61850Server) -> None:
             amps = (base * 9 if fault else base * load) + random.uniform(-0.5, 0.5)
             srv.set(f"FDR21LD0/MMXU1.A.{phs}.cVal.mag.f", "MX", round(max(amps, 0.0), 1))
             srv.set(f"FDR21LD0/MMXU1.PhV.{phs}.cVal.mag.f", "MX", round(6.35 + random.uniform(-0.02, 0.02) + (-0.8 if fault else 0), 3))
+
+
+GATEWAY_104 = [  # (ioa, type, value, name) of the substation gateway, common address 1
+    (1001, "M_ME_NC_1", 66.1, "66 kV busbar voltage L1-L2 (kV)"), (1002, "M_ME_NC_1", 66.3, "66 kV busbar voltage L2-L3 (kV)"),
+    (1003, "M_ME_NC_1", 65.9, "66 kV busbar voltage L3-L1 (kV)"), (1011, "M_ME_NC_1", 18.4, "Transformer T1 active power (MW)"),
+    (1012, "M_ME_NC_1", 5.6, "Transformer T1 reactive power (MVAr)"), (1013, "M_ME_NC_1", 50.0, "Frequency (Hz)"),
+    (1021, "M_ME_NB_1", 612, "Transformer T1 oil temperature (0.1 °C)"), (2001, "M_DP_NA_1", 2, "Incomer breaker Q0"),
+    (2002, "M_DP_NA_1", 2, "Bus coupler breaker"), (2101, "M_SP_NA_1", False, "Buchholz alarm"),
+    (2102, "M_SP_NA_1", False, "Overcurrent trip"), (2103, "M_SP_NA_1", False, "SF6 low pressure"),
+    (2201, "M_ST_NA_1", 9, "Transformer T1 tap position"), (3001, "M_IT_NA_1", 1_284_400, "Transformer T1 energy import (kWh)")]
+
+
+def substation_gateway(port: int) -> Iec104Station:
+    """A 66/11 kV substation gateway (IEC 104 station, common address 1): busbar, transformer, breakers, alarms, tap."""
+    st = Iec104Station(cas=(1,), port=port)
+    for ioa, typ, v, _ in GATEWAY_104:
+        st.add(1, ioa, typ, v)
+    return st
+
+
+async def drive_gateway(st: Iec104Station) -> None:
+    """Load follows a slow curve; the tap changer moves every 2 min; every 5 min an overcurrent trip opens the incomer
+    breaker, which recloses 20 s later. Measurements are sent spontaneously when they change by more than a deadband."""
+    t0, kwh = time.time(), 1_284_400
+    sent: dict[int, float] = {}
+
+    def send(ioa: int, v: float, band: float) -> None:
+        if abs(v - sent.get(ioa, -1e9)) >= band:
+            sent[ioa] = v
+            st.set(1, ioa, v)
+    while True:
+        await asyncio.sleep(1)
+        t = time.time() - t0
+        tripped = 200 <= t % 300 < 220
+        if tripped != (st.get(1, 2001) == 1):
+            st.set(1, 2102, tripped)                              # overcurrent trip
+            st.set(1, 2001, 1 if tripped else 2)                  # incomer open / reclosed
+        tap = 9 + int(t // 120) % 3 - 1
+        if tap != st.get(1, 2201):
+            st.set(1, 2201, tap)
+        load = 0 if tripped else 1 + 0.1 * math.sin(t / 120)
+        for i, base in enumerate((66.1, 66.3, 65.9)):
+            send(1001 + i, round(base + (tap - 9) * 0.6 + random.uniform(-0.05, 0.05), 2), 0.1)
+        send(1011, round(18.4 * load + random.uniform(-0.05, 0.05), 2), 0.1)
+        send(1012, round(5.6 * load + random.uniform(-0.02, 0.02), 2), 0.05)
+        send(1013, round(50 + random.uniform(-0.02, 0.02), 3), 0.01)
+        send(1021, round(612 + 30 * math.sin(t / 600)), 2)
+        kwh += int(18.4 * load * 1000 / 3600)
+        st.db[(1, 3001)].value = kwh                              # read by counter interrogation
 
 
 def feeder_rtu(port: int) -> Dnp3Outstation:
@@ -544,6 +595,9 @@ async def main() -> int:
     relay = feeder_relay(pick_port("127.0.0.1", 10102))
     await relay.start()
     relay_task = asyncio.create_task(drive_relay(relay))
+    gateway = substation_gateway(pick_port("127.0.0.1", 12404))
+    await gateway.start()
+    gateway_task = asyncio.create_task(drive_gateway(gateway))
     rtu = feeder_rtu(pick_port("127.0.0.1", 20010))
     await rtu.start()
     rtu_task = asyncio.create_task(drive_feeder(rtu))
@@ -563,6 +617,9 @@ async def main() -> int:
          "subscriptions": [{"topic_filter": "meters/+/telemetry", "qos": 1}, {"topic_filter": "spBv1.0/solar/#", "qos": 0}]},
         {"type": "iec61850", "name": "Feeder 21 relay", "host": "127.0.0.1", "port": relay.port, "ied_name": "FDR21",
          "description": "protection relay: measurements, breaker, overcurrent; trips every 4 min; 2 reports"},
+        {"type": "iec104", "name": "Substation 66/11 kV gateway", "host": "127.0.0.1", "port": gateway.port,
+         "common_addresses": [1], "device_time_zone": "UTC",
+         "description": "busbar, transformer, breakers, alarms, tap changer, energy counter; trips every 5 min"},
         {"type": "dnp3", "name": "Feeder 3 RTU", "host": "127.0.0.1", "port": rtu.port, "outstation_address": 10,
          "master_address": 1, "description": "11 kV feeder: currents, voltages, power, breaker, alarms, counters; trips every 3 min"},
         {"type": "opcua", "name": "Bottling line 1 PLC", "endpoint_url": opcua.url,
@@ -574,11 +631,11 @@ async def main() -> int:
     store = Store(f"sqlite:///{args.db or tmp / 'daq.db'}")
     validator = SchemaValidator(find_schemas())
     secrets_dir = tmp / "secrets"
-    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850"}, secrets_dir=secrets_dir)
+    platform = Platform(store, bus, validator, available_types={"modbus", "udp", "snmp", "mqtt", "opcua", "dnp3", "iec61850", "iec104"}, secrets_dir=secrets_dir)
     await platform.start()
     agent = LocalAgent(bus, {"modbus": ModbusConnector, "udp": UdpConnector, "snmp": SnmpConnector, "mqtt": MqttConnector,
                                 "opcua": OpcUaConnector, "dnp3": Dnp3Connector,
-                                "iec61850": Iec61850Connector}, validator,
+                                "iec61850": Iec61850Connector, "iec104": Iec104Connector}, validator,
                        edge_id="edge-demo", secrets_dir=secrets_dir)
     await agent.start()
 
@@ -626,6 +683,8 @@ async def main() -> int:
         opcua_task.cancel()
         rtu_task.cancel()
         await rtu.stop()
+        gateway_task.cancel()
+        await gateway.stop()
         relay_task.cancel()
         await relay.stop()
         await opcua.stop()

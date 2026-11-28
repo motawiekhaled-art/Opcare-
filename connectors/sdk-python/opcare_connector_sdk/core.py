@@ -320,5 +320,9 @@ ALLOW = {
     "udp": frozenset(),
     # snmp: reads only; "Response(Inform)" is the acknowledgement of a received InformRequest (spec 15.9)
     "snmp": frozenset({"GetRequest", "GetNextRequest", "GetBulkRequest", "Response(Inform)"}),
-    # iec104 is a GPL connector and implements its own guard: U/S frames + type ids 100, 101, 102
+    # iec104: U-frames (STARTDT/STOPDT act, TESTFR act and con), S-frames and three I-frame types: general
+    # interrogation, counter interrogation without freeze or reset (FRZ 0; "C_CI_NA_1:FREEZE" is blocked) and the read
+    # command (spec 15.5, draft.4)
+    "iec104": frozenset({"STARTDT_ACT", "STOPDT_ACT", "TESTFR_ACT", "TESTFR_CON", "S", "C_IC_NA_1", "C_CI_NA_1",
+                         "C_RD_NA_1"}),
 }
