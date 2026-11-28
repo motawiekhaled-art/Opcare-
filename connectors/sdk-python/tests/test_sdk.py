@@ -272,3 +272,24 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("PASS", name)
+
+
+def test_every_connector_manifest_and_dockerfile_match_the_spec():
+    """Each connector's /opcare/manifest.json validates against manifest.schema.json (spec 2.1), names its own type,
+    and its Dockerfile copies that type's configuration schema."""
+    import json
+    import pathlib
+
+    from opcare_connector_sdk.runtime import SchemaValidator
+    from opcare_connector_sdk.testing import find_schemas
+
+    root = pathlib.Path(__file__).resolve().parents[3]
+    v = SchemaValidator(find_schemas())
+    manifests = sorted(root.glob("connectors/*/opcare/manifest.json"))
+    assert len(manifests) >= 8
+    for m in manifests:
+        doc = json.loads(m.read_text())
+        assert v("manifest.schema.json", doc) == [], m
+        folder = m.parents[1]
+        assert (root / "docs/connector-spec/schemas/protocols" / f"{doc['type']}.config.schema.json").exists(), m
+        assert f"protocols/{doc['type']}.config.schema.json /opcare/config.schema.json" in (folder / "Dockerfile").read_text(), m

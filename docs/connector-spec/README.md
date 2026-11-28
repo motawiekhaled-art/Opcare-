@@ -33,5 +33,5 @@ and `browse`/`read_now` if supported. Then pass conformance tests CT-01 … CT-1
   MQTT stand-in.
 - Not yet verified: the SDK's paho-mqtt adapter against a real Mosquitto broker, and the conformance kit itself
   (simulators and CT tests are to be built in Phase 0, see Architecture section 13.3).
-- The IEC 104 connector is GPL and must **not** use `sdk-python`; it implements the same behaviour in C
-  (spec section 2, rule 7).
+- A connector that links GPL code must **not** use `sdk-python` (spec section 2, rule 7). None does: since draft.4 the
+  IEC 104 connector uses Opcare's own stack and lives in this repository.

@@ -70,7 +70,7 @@ jobs:
           python-version: "3.12"
       - name: Tests
         run: |
-          pip install starlette uvicorn jsonschema referencing pytest cryptography
+          pip install starlette uvicorn jsonschema referencing pytest cryptography tzdata
           python -m pytest connectors platform edge -v -rs -k "not gui"
       - name: Windows launcher self-test
         if: runner.os == 'Windows'
@@ -153,6 +153,42 @@ jobs:
           OPCARE_DNP3_INTEROP_PY: python
         run: python -m pytest connectors/dnp3/tests -v -rs
 
+  iec61850-interop:
+    name: IEC 61850 · interoperability with IEC61850bean (test-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Build the IEC61850bean MMS server (Apache-2.0, from source; test opponent only, never in the product)
+        run: echo "OPCARE_IEC61850_INTEROP_CP=$(tools/interop/build_iec61850bean.sh "$RUNNER_TEMP/iec61850bean" | tail -1)" >> "$GITHUB_ENV"
+      - name: Install packages
+        run: pip install jsonschema referencing pytest cryptography "paho-mqtt>=2.1,<3"
+      - name: Interoperability tests (reports, polling, quality, browse, test connection)
+        run: python -m pytest connectors/iec61850/tests -v -rs
+
+  iec104-interop:
+    name: IEC 104 · interoperability with lib60870's example server (test-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build lib60870's cs104_server (GPLv3, downloaded and built here; test opponent only, never committed or shipped)
+        run: echo "OPCARE_IEC104_INTEROP_SERVER=$(tools/interop/build_lib60870_server.sh "$RUNNER_TEMP/lib60870" | tail -1)" >> "$GITHUB_ENV"
+      - name: Install packages
+        run: pip install jsonschema referencing pytest cryptography "paho-mqtt>=2.1,<3"
+      - name: Interoperability tests (interrogation, packed sequences, periodic data, rejected requests)
+        run: python -m pytest connectors/iec104/tests -v -rs
+
   docker:
     name: Container images build
     runs-on: ubuntu-latest
@@ -167,12 +203,24 @@ jobs:
         run: docker build -f connectors/snmp/Dockerfile -t opcare/connector-snmp:ci .
       - name: MQTT connector image
         run: docker build -f connectors/mqtt/Dockerfile -t opcare/connector-mqtt:ci .
+      - name: IEC 61850 connector image
+        run: docker build -f connectors/iec61850/Dockerfile -t opcare/connector-iec61850:ci .
+      - name: "IEC 61850 image holds no IEC 61850 / MMS library (Opcare's own stack only)"
+        run: |
+          docker run --rm --entrypoint python opcare/connector-iec61850:ci -c \
+            "import importlib.util as u, sys; bad=[m for m in ('pyiec61850','iec61850','libiec61850') if u.find_spec(m)]; print('found', bad); sys.exit(1 if bad else 0)"
       - name: DNP3 connector image
         run: docker build -f connectors/dnp3/Dockerfile -t opcare/connector-dnp3:ci .
       - name: "DNP3 image holds no DNP3 library (Opcare's own stack only)"
         run: |
           docker run --rm --entrypoint python opcare/connector-dnp3:ci -c \
             "import importlib.util as u, sys; bad=[m for m in ('pydnp3','dnp3_python','dnp3') if u.find_spec(m)]; print('found', bad); sys.exit(1 if bad else 0)"
+      - name: IEC 104 connector image
+        run: docker build -f connectors/iec104/Dockerfile -t opcare/connector-iec104:ci .
+      - name: "IEC 104 image holds no IEC 104 library (Opcare's own stack only) and knows time zones"
+        run: |
+          docker run --rm --entrypoint python opcare/connector-iec104:ci -c \
+            "import importlib.util as u, sys, glob, zoneinfo; bad=[m for m in ('c104','lib60870','iec104','pyiec60870') if u.find_spec(m)] + glob.glob('/usr/**/lib60870*', recursive=True); zoneinfo.ZoneInfo('Africa/Cairo'); print('found', bad); sys.exit(1 if bad else 0)"
       - name: OPC UA connector image
         run: docker build -f connectors/opcua/Dockerfile -t opcare/connector-opcua:ci .
       - name: "OPC UA image holds no OPC UA library (Opcare's own stack only)"
@@ -184,7 +232,7 @@ jobs:
       - name: "Connector image refuses to start without its environment (spec: exit code 2)"
         run: |
           set +e
-          for c in modbus udp snmp mqtt opcua dnp3; do
+          for c in modbus udp snmp mqtt opcua dnp3 iec61850 iec104; do
             docker run --rm --read-only "opcare/connector-$c:ci"
             code=$?
             echo "$c exit code $code"

@@ -1,0 +1,10 @@
+{
+  "spec": "1.0",
+  "type": "iec104",
+  "name": "IEC 60870-5-104 master over TCP or TLS (Opcare stack)",
+  "version": "1.0.0",
+  "license": "LicenseRef-Opcare-Proprietary",
+  "config_schema": "/opcare/config.schema.json",
+  "capabilities": { "modes": ["poll", "report"], "browse": true, "read_now": true, "device_timestamps": true, "tls": true },
+  "limits": { "max_points": 50000, "min_scan_ms": 1000 }
+}
