@@ -3,7 +3,7 @@
 | Item | Value |
 |---|---|
 | Document | OSS-DAQ-CON-001 |
-| Spec version | **1.0.0-draft.2** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9) |
+| Spec version | **1.0.0-draft.3** (`"spec": "1.0"` in messages) — draft.2 adds the `udp` and `snmp` profiles (15.8, 15.9); draft.3 lists the DNP3 link-layer frames (15.6) |
 | Date | 3 November 2026 |
 | Parent documents | MVP Scope OSS-DAQ-MVP-001 v0.2 · Architecture OSS-DAQ-ARC-001 v0.1 (section 7) |
 | Status | Draft for engineering review |
@@ -366,6 +366,7 @@ Connectors publish operational events to the `event` topic (schema `event.schema
 | `config.rejected` | medium | A configuration was rejected (`attrs.revision`, `attrs.errors`) |
 | `device.restart` | low | The device reports it restarted (e.g. DNP3 IIN1.7) |
 | `device.time_invalid` | low | Device timestamps marked invalid; connector falls back to `rx` |
+| `device.events_lost` | medium | The device reports its event buffer overflowed, so some changes were lost (e.g. DNP3 IIN2.3) |
 | `scan.overrun` | low | A poll cycle took longer than its scan period (max one event per minute) |
 | `guard.blocked` | critical | The read-only guard blocked an outgoing write (section 12). Must never happen in production |
 
@@ -615,6 +616,8 @@ For IoT devices that publish to a **client's** broker (not the Opcare local brok
 **Quality** (DNP3 flags): ONLINE only → 192 · not ONLINE → 0 · COMM_LOST → 24 · RESTART → 68 · LOCAL_FORCED or REMOTE_FORCED → 216 · OVER_RANGE or ROLLOVER → 84 · REFERENCE_ERR → 80 · CHATTER_FILTER → 64. Put flag names in `f`.
 
 **Allowed requests** (function codes): **0** CONFIRM, **1** READ, **20** ENABLE_UNSOLICITED and **21** DISABLE_UNSOLICITED (reporting setup, only if `unsolicited` is configured), **2** WRITE **only** for clearing the IIN1.7 DEVICE_RESTART bit (g80v1 index 7, value 0). **Forbidden**: 3–6 (select/operate/direct operate), 7–12 (freeze), 13–14 (restart), 15–19 (initialise data, application control, save configuration), 22 (assign class), 23–24 (delay measurement / record time), 25–31 (file), any other WRITE (including time sync). With opendnp3: set time-sync mode to none and do not issue command sets.
+
+**Link layer** (IEEE 1815 section 9; carries no process data): application fragments travel in primary UNCONFIRMED_USER_DATA frames (link FC 4). The master may also send primary REQUEST_LINK_STATUS (link FC 9, guard name `LINK_STATUS_REQUEST`) as the `keep_alive_s` check, and secondary LINK_STATUS (FC 11, `LINK_STATUS`) or ACK (FC 0, `LINK_ACK`) when the outstation asks for them. No other link frames (RESET_LINK_STATES, TEST_LINK, CONFIRMED_USER_DATA) are sent by the master.
 
 ### 15.7 IP camera (ONVIF / RTSP) — type `camera`
 

@@ -216,6 +216,54 @@
     [1, 2, 3].forEach((i) => { devs[`inv-${i}`] = {Power: ["Float", inv[i - 1]], Temperature: ["Float", r(38 + i + 6 * sun, 1)], Running: ["Boolean", true], Faults: ["Int32", 0]}; });
     return {node, devs};
   }
+  // ---- DNP3 feeder RTU, outstation 10 (as run_demo.py feeder_rtu)
+  const RTU = {host: "127.0.0.1", port: 20010, outstation: 10, master: 1};
+  const feederTripped = (ms) => { const ph = ((ms - t0) / 1000) % 180; return ph >= 100 && ph < 120; };
+  const RTU_POINTS = {
+    analog_input: [182.0, 179.5, 184.2, 11.02, 11.05, 10.98, 3.21, 0.94, 0.96, 50.0].map((base, i) => (ms) => {
+      const trip = feederTripped(ms), load = trip ? 0 : 1 + 0.12 * Math.sin((ms - t0) / 90000);
+      if (i < 3) return r(base * load + rnd(-0.8, 0.8), 1);
+      if (i < 6) return r(base + rnd(-0.03, 0.03) + (trip ? 0.12 : 0), 3);
+      if (i === 8) return trip ? 0 : r(base + rnd(-0.005, 0.005), 3);
+      if (i === 9) return r(base + rnd(-0.03, 0.03), 3);
+      return r(base * load + rnd(-0.02, 0.02), 3);
+    }),
+    binary_input: [(ms) => feederTripped(ms), (ms) => feederTripped(ms), () => false, () => false],
+    double_bit_binary_input: [(ms) => feederTripped(ms) ? 1 : 2, () => 2],
+    counter: [(ms) => 8412650 + Math.floor((ms - t0) / 1000 * 0.9), (ms) => 1284 + 2 * Math.floor((ms - t0) / 180000) + (feederTripped(ms) ? 1 : 0)],
+  };
+  const DNP_LABEL = {binary_input: "Binary input", double_bit_binary_input: "Double-bit input", counter: "Counter", analog_input: "Analog input"};
+  const DNP_VAR = {binary_input: "g1v2", double_bit_binary_input: "g3v2", counter: "g20v1", analog_input: "g30v5"};
+  const DNP_TYPE = {binary_input: "bool", double_bit_binary_input: "enum", counter: "int", analog_input: "float"};
+  function dnpAccess(cfg) {
+    const c = cfg.connection;
+    if (c.host !== RTU.host || Number(c.port ?? 20000) !== RTU.port) return {error: {code: "CONN_TIMEOUT", message: `no answer from ${c.host}:${c.port ?? 20000} (in this demo the RTU is ${RTU.host}:${RTU.port})`}};
+    if (c.tls?.enabled) return {error: {code: "TLS_FAILED", message: `TLS handshake with ${c.host}:${c.port} failed: the demo RTU does not use TLS`}};
+    if (Number(c.outstation_address) !== RTU.outstation || Number(c.master_address ?? 1) !== RTU.master)
+      return {error: {code: "CONN_TIMEOUT", message: `no response from outstation ${c.outstation_address} within ${c.response_timeout_ms ?? 5000} ms (the demo RTU is outstation ${RTU.outstation} and expects master ${RTU.master})`}};
+    return {};
+  }
+  function dnpValue(cfg, p, ms) {
+    const fn = RTU_POINTS[p.address.group]?.[p.address.index];
+    if (!fn) return {v: null, q: 4, f: ["NOT_IN_OUTSTATION"]};
+    const raw = fn(ms), dt = p.data_type;
+    if (dt === "bool") return typeof raw === "boolean" ? {v: raw, q: 192} : {v: null, q: 4, f: ["TYPE_MISMATCH"]};
+    if (dt === "string") return {v: p.address.group === "double_bit_binary_input" ? ["intermediate", "off", "on", "indeterminate"][raw] : String(raw), q: 192};
+    if (dt === "int" || dt === "enum") return {v: Math.round(Number(raw)), q: 192};
+    return typeof raw === "boolean" ? {v: null, q: 4, f: ["TYPE_MISMATCH"]} : {v: scale(p, Number(raw)), q: 192};
+  }
+  function dnpBrowse(path) {
+    const ms = now(), items = [];
+    Object.entries(RTU_POINTS).forEach(([kind, fns]) => {
+      if (path && path.split("/")[0] !== kind) return;
+      items.push({path: kind, name: `${DNP_LABEL[kind]}s`, kind: "object", has_children: true, info: {count: fns.length, sample: `${fns.length} point(s), ${DNP_VAR[kind]}`}});
+      fns.forEach((fn, i) => { const v = fn(ms);
+        items.push({path: `${kind}/${i}`, name: `${DNP_LABEL[kind]} ${i}`, kind: "variable", has_children: false, address: {group: kind, index: i}, data_type: DNP_TYPE[kind],
+          info: {variation: DNP_VAR[kind], sample: kind === "double_bit_binary_input" ? ["intermediate", "off", "on", "indeterminate"][v] : typeof v === "boolean" ? (v ? "on" : "off") : String(v), quality: 192, flags: "ONLINE"}}); });
+    });
+    return {items};
+  }
+
   // ---- OPC UA server of a bottling line PLC (as run_demo.py bottling_line_server)
   const UA = {url: "opc.tcp://127.0.0.1:48410/line1", ns: "urn:opcare:demo:bottling-line", user: "operator", password: "OpcUa@2026",
     thumb: "5C1A9E0D7B3F2A64C8E1D09B7F4A2E6C3D8B1F07", offered: ["None|None", "Basic256Sha256|SignAndEncrypt", "Aes256_Sha256_RsaPss|SignAndEncrypt"],
@@ -401,8 +449,8 @@
     if (dt === "string") return {v: String(val), q: 192};
     return {v: scale(p, val), q: 192};
   }
-  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : cfg.type === "opcua" ? "server" : p.address.device;
-  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.type === "opcua" ? [{id: "server"}] : cfg.connection.devices;
+  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : cfg.type === "opcua" ? "server" : cfg.type === "dnp3" ? "outstation" : p.address.device;
+  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.type === "opcua" ? [{id: "server"}] : cfg.type === "dnp3" ? [{id: "outstation"}] : cfg.connection.devices;
   function walk(cfg, path, maxItems) {
     const [devId, rest = "1.3.6.1.2.1"] = String(path || "").split(/\/(.*)/s);
     const dev = cfg.connection.devices.find((d) => d.id === (devId || cfg.connection.devices[0].id));
@@ -444,7 +492,7 @@
     if (!cfg.name) e.push("name: 'name' is a required property");
     if (!ID_RE.test(cfg.source_id || "")) e.push(`source_id: '${cfg.source_id || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
     if (!ID_RE.test(cfg.site || "")) e.push(`site: '${cfg.site || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
-    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : cfg.type === "opcua" ? [{id: "server", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
+    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : cfg.type === "opcua" ? [{id: "server", host: "x"}] : cfg.type === "dnp3" ? [{id: "outstation", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
     if (!devs.length) e.push(`connection/${what}: at least one is required`);
     if (cfg.type === "mqtt") {
       if (!/^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(c.broker_url || "")) e.push("connection/broker_url: must be mqtt://host[:port] or mqtts://host[:port]");
@@ -454,6 +502,20 @@
         if (a.format === "sparkplug_b") { if (!a.group_id || !a.edge_node_id || !a.metric) e.push(`points/${i}/address: Sparkplug needs group, edge node and metric`); }
         else if (!a.topic) e.push(`points/${i}/address: 'topic' is a required property`);
         else if (!mqttCovered(cfg, a.topic.replace(/[+#]/g, "x"))) e.push(`points/${i}/address/topic: '${a.topic}' is not covered by any subscription`);
+      });
+    }
+    if (cfg.type === "dnp3") {
+      if (!c.host) e.push("connection: 'host' is a required property");
+      if (!Number.isInteger(Number(c.outstation_address))) e.push("connection: 'outstation_address' is a required property");
+      if (Number(c.master_address ?? 1) === Number(c.outstation_address)) e.push("connection: master_address and outstation_address must differ");
+      const seen = new Map();
+      (cfg.points || []).forEach((p, i) => {
+        const a = p.address || {}, ok = {binary_input: ["bool", "int", "string"], binary_output_status: ["bool", "int", "string"],
+          double_bit_binary_input: ["enum", "int", "string"]}[a.group] || ["float", "int", "string"];
+        if (!DNP_LABEL[a.group] && !["frozen_counter", "binary_output_status", "analog_output_status"].includes(a.group)) e.push(`points/${i}/address/group: '${a.group}' is not a DNP3 point type`);
+        if (!(Number.isInteger(a.index) && a.index >= 0 && a.index <= 65535)) e.push(`points/${i}/address/index: must be a whole number from 0 to 65535`);
+        if (!ok.includes(p.data_type)) e.push(`${p.tag_id}: a ${a.group} point cannot be '${p.data_type}' (use ${ok.join(" or ")})`);
+        const k = `${a.group}/${a.index}`; if (seen.has(k)) e.push(`${p.tag_id}: ${a.group} ${a.index} is already tag ${seen.get(k)}`); seen.set(k, p.tag_id);
       });
     }
     if (cfg.type === "opcua") {
@@ -478,7 +540,7 @@
       if (!TAG_RE.test(p.tag_id || "")) e.push(`points/${i}/tag_id: '${p.tag_id}' does not match the tag pattern (lower case, dot-separated)`);
       if (seen.has(p.tag_id)) e.push(`points/${i}/tag_id: duplicate tag_id '${p.tag_id}'`);
       seen.add(p.tag_id);
-      if (cfg.type !== "mqtt" && cfg.type !== "opcua" && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
+      if (cfg.type !== "mqtt" && cfg.type !== "opcua" && cfg.type !== "dnp3" && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
       if (cfg.type === "snmp" && !/^\.?[0-2](\.(0|[1-9]\d{0,9}))+$/.test(a.oid || "")) e.push(`points/${i}/address/oid: '${a.oid || ""}' is not a numeric OID`);
       if (cfg.type === "udp" && a.format === "json" && !/^(\/[^/]*)*$/.test(a.value_pointer || "x")) e.push(`points/${i}/address/value_pointer: must start with /`);
       if (cfg.type === "udp" && a.format === "nmea" && !(a.sentence && a.field >= 1)) e.push(`points/${i}/address: NMEA needs a sentence and a field from 1`);
@@ -506,6 +568,7 @@
     if (cfg.type === "udp") return stationHeard(cfg, dev);
     if (cfg.type === "mqtt") return brokerOk(cfg);
     if (cfg.type === "opcua") return !uaAccess(cfg).error;
+    if (cfg.type === "dnp3") return !dnpAccess(cfg).error;
     if (cfg.type === "snmp") return !snmpAccess(cfg, dev).error;
     if (cfg.source_id === "modbus-mcc-01") return !(dev.id === "feeder-2" && feeder2Down(ms));
     return isPump(cfg.connection) && Number(dev.unit_id) === PUMP.unit;
@@ -514,6 +577,7 @@
     if (cfg.type === "udp") return udpValue(p, ms);
     if (cfg.type === "mqtt") return mqttValue(cfg, p, ms);
     if (cfg.type === "opcua") return uaValue(cfg, p, ms);
+    if (cfg.type === "dnp3") return dnpValue(cfg, p, ms);
     if (cfg.type === "snmp") {
       const dev = cfg.connection.devices.find((d) => d.id === p.address.device), acc = dev ? snmpAccess(cfg, dev) : {};
       return acc.kind ? snmpConvert(p, mib(acc.kind, ms)[String(p.address.oid).replace(/^\./, "")], s, ms) : null;
@@ -539,7 +603,7 @@
         }
         s.devState[d.id] = up ? "connected" : "unreachable";
         if (up) s.lastOk[d.id] = iso(ms);
-        const e = up ? null : cfg.type === "opcua" ? uaAccess(cfg).error : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
+        const e = up ? null : cfg.type === "opcua" ? uaAccess(cfg).error : cfg.type === "dnp3" ? dnpAccess(cfg).error : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
           : cfg.type === "snmp" ? snmpAccess(cfg, d).error : cfg.type === "udp"
           ? {code: "CONN_TIMEOUT", message: `no datagram from sender ${d.id} for ${cfg.connection.silence_timeout_s ?? 60} s`}
           : {code: "CONN_TIMEOUT", message: `No response from unit ${d.unit_id} within ${cfg.acquisition?.request_timeout_ms ?? 1000} ms`};
@@ -646,15 +710,17 @@
   ];
   function catalog() {
     const types = (window.__DEMO_CATALOG__ || []).map((t) => {
-      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt", "opcua"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
+      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt", "opcua", "dnp3"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
       return {...t, protocols, available: protocols.filter((p) => p.status === "available").length};
     });
-    return {types, available: ["modbus", "mqtt", "opcua", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
+    return {types, available: ["dnp3", "modbus", "mqtt", "opcua", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
       {name: "Pump Station West", device_id: "pump-plc", ...PUMP, unit_id: PUMP.unit, tags: PUMP_TAGS},
       {type: "snmp", name: "Server room switch and UPS", community: "public", v3: SNMP_V3, trap_port: TRAP_PORT,
         devices: [{id: "server-room-sw", host: "127.0.0.1", port: 161, name: "Server room switch"}, {id: "ups-1", host: "127.0.0.1", port: 1161, name: "UPS 10 kVA"}]},
       {type: "mqtt", name: "Water meters and solar plant (MQTT broker)", broker_url: BROKER,
         subscriptions: [{topic_filter: "meters/+/telemetry", qos: 1}, {topic_filter: "spBv1.0/solar/#", qos: 0}]},
+      {type: "dnp3", name: "Feeder 3 RTU", host: RTU.host, port: RTU.port, outstation_address: RTU.outstation, master_address: RTU.master,
+        description: "11 kV feeder: currents, voltages, power, breaker, alarms, counters; trips every 3 min"},
       {type: "opcua", name: "Bottling line 1 PLC", endpoint_url: UA.url, security_policy: "Basic256Sha256", security_mode: "SignAndEncrypt",
         thumbprint: UA.thumb, username: UA.user, password: UA.password},
       {type: "udp", name: "GNSS and weather station", bind_port: STATION.port, senders: [{id: "station", host: "127.0.0.1", name: "GNSS + weather station"}]}]}};
@@ -671,7 +737,7 @@
     if (!create && !existing) return [null, err(404, "NOT_FOUND", `source ${id} not found`)];
     const doc = {spec: "1.0", revision: existing ? existing.config.revision + 1 : 1, enabled: true, ...JSON.parse(JSON.stringify(body)), source_id: id};
     doc.spec = "1.0"; doc.revision = existing ? existing.config.revision + 1 : 1;
-    if (!["modbus", "udp", "snmp", "mqtt", "opcua"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['modbus', 'mqtt', 'opcua', 'snmp', 'udp']`)];
+    if (!["modbus", "udp", "snmp", "mqtt", "opcua", "dnp3"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['dnp3', 'modbus', 'mqtt', 'opcua', 'snmp', 'udp']`)];
     const errors = doc.type === "modbus" ? validate(doc) : validateOther(doc);
     if (errors.length) return [null, err(422, "CFG_INVALID", "configuration is not valid", errors)];
     const taken = doc.points.map((p) => p.tag_id).filter((t) => tagOwner.has(t) && tagOwner.get(t) !== id);
@@ -694,6 +760,13 @@
     return pointValue(cfg, {tag_id: "adhoc", address: {...address, transform: "none"}, data_type}, now()) || {v: null, q: 4};
   }
   async function testConnection(cfg) {
+    if (cfg.type === "dnp3") {
+      await sleep(rnd(150, 350));
+      const a = dnpAccess(cfg), c = cfg.connection;
+      if (a.error) { await sleep(800); return {devices: [{id: "outstation", ok: false, latency_ms: c.response_timeout_ms ?? 5000, error: a.error}]}; }
+      return {devices: [{id: "outstation", ok: true, latency_ms: r(rnd(2, 9), 1), info: {outstation: RTU.outstation, master: RTU.master,
+        points: {"Binary input": 4, "Double-bit input": 2, "Counter": 2, "Analog input": 10}, iin: ["CLASS_2_EVENTS"], tls: false}}]};
+    }
     if (cfg.type === "opcua") {
       await sleep(rnd(300, 600));
       const a = uaAccess(cfg), c = cfg.connection;
@@ -966,6 +1039,11 @@
       await sleep(Math.min(8, args.listen_s || 10) * 250);
       if (!brokerOk(doc)) return json({...res, ok: false, error: {code: "CONN_REFUSED", message: `cannot connect to ${doc.connection.broker_url}`}}, 502);
       return json({...res, ok: true, result: mqttListen(doc)});
+    }
+    if (doc.type === "dnp3") {
+      await sleep(rnd(200, 450));
+      const a = dnpAccess(doc);
+      return a.error ? json({...res, ok: false, error: a.error}, 502) : json({...res, ok: true, result: dnpBrowse(args.path)});
     }
     if (doc.type === "opcua") {
       await sleep(rnd(200, 450));
