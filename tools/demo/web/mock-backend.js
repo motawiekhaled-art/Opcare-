@@ -216,6 +216,57 @@
     [1, 2, 3].forEach((i) => { devs[`inv-${i}`] = {Power: ["Float", inv[i - 1]], Temperature: ["Float", r(38 + i + 6 * sun, 1)], Running: ["Boolean", true], Faults: ["Int32", 0]}; });
     return {node, devs};
   }
+  // ---- OPC UA server of a bottling line PLC (as run_demo.py bottling_line_server)
+  const UA = {url: "opc.tcp://127.0.0.1:48410/line1", ns: "urn:opcare:demo:bottling-line", user: "operator", password: "OpcUa@2026",
+    thumb: "5C1A9E0D7B3F2A64C8E1D09B7F4A2E6C3D8B1F07", offered: ["None|None", "Basic256Sha256|SignAndEncrypt", "Aes256_Sha256_RsaPss|SignAndEncrypt"],
+    cert: {subject: "O=Opcare Smart Services,CN=Opcare OPC UA test server", issuer: "O=Opcare Smart Services,CN=Opcare OPC UA test server",
+      not_after: "2036-11-24", application_uri: "urn:opcare:sim:server"}};
+  const lineRunning = (ms) => ((ms - t0) / 1000) % 300 > 20;
+  const uaSpeed = (ms) => lineRunning(ms) ? r(18000 + 600 * Math.sin((ms - t0) / 50000) + rnd(-80, 80), 1) : 0;
+  const UA_TREE = {
+    "Line1/Filler": [["Speed", "Line1.Filler.Speed", "Double", uaSpeed], ["Running", "Line1.Filler.Running", "Boolean", lineRunning],
+      ["BottleCount", "Line1.Filler.BottleCount", "Int32", (ms) => 1250400 + Math.floor((ms - t0) / 1000 * 5)],
+      ["Mode", "Line1.Filler.Mode", "String", (ms) => lineRunning(ms) ? "AUTO" : "STOPPED"]],
+    "Line1/Capper": [["Torque", "Line1.Capper.Torque", "Double", (ms) => lineRunning(ms) ? r(2.35 + rnd(-0.05, 0.05), 3) : 0],
+      ["RejectCount", "Line1.Capper.RejectCount", "Int32", (ms) => 312 + Math.floor((ms - t0) / 12000)]],
+    "Line1/ShrinkOven": [["Temperature", "Line1.Oven.Temperature", "Double", (ms) => r(182 + 2.5 * Math.sin((ms - t0) / 70000) + rnd(-0.3, 0.3), 2)],
+      ["Setpoint", "Line1.Oven.Setpoint", "Double", () => 185.0]],
+    "Line1/Energy": [["ActivePower", "Line1.Energy.ActivePower", "Double", (ms) => lineRunning(ms) ? r(96 + 6 * Math.sin((ms - t0) / 40000) + rnd(-1, 1), 2) : 18.5],
+      ["TotalEnergy", "Line1.Energy.TotalEnergy", "Double", (ms) => r(412903.6 + (ms - t0) / 1000 * 0.026, 2)]],
+  };
+  const UA_NODES = Object.fromEntries(Object.values(UA_TREE).flat().map(([name, ident, type, fn]) => [ident, {name, type, fn}]));
+  const UA_KIND = {Double: "float", Boolean: "bool", Int32: "int", String: "string"};
+  function uaAccess(cfg) {
+    const c = cfg.connection, sec = `${c.security_policy || "Basic256Sha256"}|${c.security_mode || "SignAndEncrypt"}`;
+    if (String(c.endpoint_url || "").replace(/\/$/, "") !== UA.url) return {error: {code: "CONN_REFUSED", message: `cannot connect to ${c.endpoint_url} (in this demo the server is ${UA.url})`}};
+    if (!UA.offered.includes(sec)) return {error: {code: "TLS_FAILED", message: `the server offers no endpoint ${sec.replace("|", "/")}; it offers ${UA.offered.map((x) => x.replace("|", "/")).join(", ")}`}, endpoints: true};
+    if (!sec.startsWith("None") && !c.insecure_skip_verify && !(c.trusted_server_thumbprints || []).includes(UA.thumb))
+      return {error: {code: "TLS_FAILED", message: `the server certificate (thumbprint ${UA.thumb}) is not trusted yet: compare the thumbprint with the one on the server, then trust it`}, endpoints: true, cert: true};
+    if ((c.auth || "anonymous") !== "username") return {error: {code: "AUTH_FAILED", message: "ActivateSession: Bad_IdentityTokenInvalid (this demo server accepts user name sign-in only)"}};
+    if (c.username !== UA.user || secrets.get(c.password_ref) !== UA.password) return {error: {code: "AUTH_FAILED", message: "ActivateSession: Bad_UserAccessDenied"}};
+    return {};
+  }
+  const uaIdent = (nodeId) => { const m = String(nodeId || "").match(/^(?:nsu=([^;]+)|ns=(\d+));s=(.+)$/); return m && (m[1] === UA.ns || m[2] === "2") ? m[3] : null; };
+  function uaValue(cfg, p, ms) {
+    const n = UA_NODES[uaIdent(p.address.node_id)];
+    if (!n) return {v: null, q: 4, f: ["Bad_NodeIdUnknown"]};
+    const raw = n.fn(ms), dt = p.data_type;
+    if (dt === "string") return {v: String(raw), q: 192};
+    if (typeof raw === "string") return {v: null, q: 4, f: ["TYPE_MISMATCH"]};
+    if (dt === "bool") return {v: Boolean(raw), q: 192};
+    if (dt === "int" || dt === "enum") return Number.isInteger(Number(raw)) ? {v: Number(raw), q: 192} : {v: null, q: 4, f: ["TYPE_MISMATCH"]};
+    return {v: scale(p, Number(raw)), q: 192};
+  }
+  function uaBrowse(path) {
+    const ms = now(), at = (path || "").match(/;s=(.+)$/)?.[1] || "";
+    if (!path || path === "i=85") return {items: [{path: "i=2253", name: "Server", kind: "object", has_children: true, info: {node_class: "Object"}},
+      {path: `nsu=${UA.ns};s=Line1`, name: "Line1", kind: "folder", has_children: true, info: {node_class: "Object"}}]};
+    if (path === "i=2253") return {items: [{path: "i=2255", name: "NamespaceArray", kind: "variable", has_children: false, address: {node_id: "i=2255"}, data_type: "string",
+      info: {node_class: "Variable", data_type: "String", sample: JSON.stringify(["http://opcfoundation.org/UA/", UA.ns])}}]};
+    if (at === "Line1") return {items: Object.keys(UA_TREE).map((k) => ({path: `nsu=${UA.ns};s=${k}`, name: k.split("/")[1], kind: "folder", has_children: true, info: {node_class: "Object"}}))};
+    return {items: (UA_TREE[at] || []).map(([name, ident, type, fn]) => ({path: `nsu=${UA.ns};s=${ident}`, name, kind: "variable", has_children: false,
+      address: {node_id: `nsu=${UA.ns};s=${ident}`}, data_type: UA_KIND[type], info: {node_class: "Variable", data_type: type, sample: String(fn(ms))}}))};
+  }
   function mqttCovered(cfg, topic) { return cfg.connection.subscriptions.some((x) => mqttTopicMatch(x.topic_filter, topic)); }
   function mqttValue(cfg, p, ms) {
     const a = p.address;
@@ -350,8 +401,8 @@
     if (dt === "string") return {v: String(val), q: 192};
     return {v: scale(p, val), q: 192};
   }
-  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : p.address.device;
-  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.connection.devices;
+  const devOfPoint = (cfg, p) => cfg.type === "mqtt" ? "broker" : cfg.type === "opcua" ? "server" : p.address.device;
+  const devicesOf = (cfg) => cfg.type === "udp" ? cfg.connection.senders : cfg.type === "mqtt" ? [{id: "broker"}] : cfg.type === "opcua" ? [{id: "server"}] : cfg.connection.devices;
   function walk(cfg, path, maxItems) {
     const [devId, rest = "1.3.6.1.2.1"] = String(path || "").split(/\/(.*)/s);
     const dev = cfg.connection.devices.find((d) => d.id === (devId || cfg.connection.devices[0].id));
@@ -393,7 +444,7 @@
     if (!cfg.name) e.push("name: 'name' is a required property");
     if (!ID_RE.test(cfg.source_id || "")) e.push(`source_id: '${cfg.source_id || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
     if (!ID_RE.test(cfg.site || "")) e.push(`site: '${cfg.site || ""}' does not match the ID pattern (lower case letters, digits, dashes)`);
-    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
+    const devs = (cfg.type === "udp" ? c.senders : cfg.type === "mqtt" ? [{id: "broker", host: "x"}] : cfg.type === "opcua" ? [{id: "server", host: "x"}] : c.devices) || [], what = cfg.type === "udp" ? "senders" : "devices";
     if (!devs.length) e.push(`connection/${what}: at least one is required`);
     if (cfg.type === "mqtt") {
       if (!/^mqtts?:\/\/[^/:]+(:\d+)?\/?$/.test(c.broker_url || "")) e.push("connection/broker_url: must be mqtt://host[:port] or mqtts://host[:port]");
@@ -404,6 +455,11 @@
         else if (!a.topic) e.push(`points/${i}/address: 'topic' is a required property`);
         else if (!mqttCovered(cfg, a.topic.replace(/[+#]/g, "x"))) e.push(`points/${i}/address/topic: '${a.topic}' is not covered by any subscription`);
       });
+    }
+    if (cfg.type === "opcua") {
+      if (!/^opc\.tcp:\/\/[^/:]+(:\d+)?(\/.*)?$/.test(c.endpoint_url || "")) e.push("connection/endpoint_url: must be opc.tcp://host[:port][/path]");
+      if ((c.security_policy === "None") !== (c.security_mode === "None")) e.push("connection: security_mode 'None' goes with security_policy 'None', and only with it");
+      (cfg.points || []).forEach((p, i) => { if (!/^(ns=\d+|nsu=[^;]+);[isgb]=.+$|^i=\d+$/.test(p.address?.node_id || "")) e.push(`points/${i}/address/node_id: '${p.address?.node_id || ""}' is not a valid NodeId`); });
     }
     devs.forEach((d, i) => {
       if (!ID_RE.test(d.id || "")) e.push(`connection/${what}/${i}/id: '${d.id}' does not match the ID pattern`);
@@ -422,7 +478,7 @@
       if (!TAG_RE.test(p.tag_id || "")) e.push(`points/${i}/tag_id: '${p.tag_id}' does not match the tag pattern (lower case, dot-separated)`);
       if (seen.has(p.tag_id)) e.push(`points/${i}/tag_id: duplicate tag_id '${p.tag_id}'`);
       seen.add(p.tag_id);
-      if (cfg.type !== "mqtt" && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
+      if (cfg.type !== "mqtt" && cfg.type !== "opcua" && !devs.some((d) => d.id === a.device)) e.push(`points/${i}/address/device: unknown ${cfg.type === "udp" ? "sender" : "device"} '${a.device}'`);
       if (cfg.type === "snmp" && !/^\.?[0-2](\.(0|[1-9]\d{0,9}))+$/.test(a.oid || "")) e.push(`points/${i}/address/oid: '${a.oid || ""}' is not a numeric OID`);
       if (cfg.type === "udp" && a.format === "json" && !/^(\/[^/]*)*$/.test(a.value_pointer || "x")) e.push(`points/${i}/address/value_pointer: must start with /`);
       if (cfg.type === "udp" && a.format === "nmea" && !(a.sentence && a.field >= 1)) e.push(`points/${i}/address: NMEA needs a sentence and a field from 1`);
@@ -449,6 +505,7 @@
   function deviceReachable(cfg, dev, ms) {
     if (cfg.type === "udp") return stationHeard(cfg, dev);
     if (cfg.type === "mqtt") return brokerOk(cfg);
+    if (cfg.type === "opcua") return !uaAccess(cfg).error;
     if (cfg.type === "snmp") return !snmpAccess(cfg, dev).error;
     if (cfg.source_id === "modbus-mcc-01") return !(dev.id === "feeder-2" && feeder2Down(ms));
     return isPump(cfg.connection) && Number(dev.unit_id) === PUMP.unit;
@@ -456,6 +513,7 @@
   function pointValue(cfg, p, ms, s) {
     if (cfg.type === "udp") return udpValue(p, ms);
     if (cfg.type === "mqtt") return mqttValue(cfg, p, ms);
+    if (cfg.type === "opcua") return uaValue(cfg, p, ms);
     if (cfg.type === "snmp") {
       const dev = cfg.connection.devices.find((d) => d.id === p.address.device), acc = dev ? snmpAccess(cfg, dev) : {};
       return acc.kind ? snmpConvert(p, mib(acc.kind, ms)[String(p.address.oid).replace(/^\./, "")], s, ms) : null;
@@ -481,7 +539,7 @@
         }
         s.devState[d.id] = up ? "connected" : "unreachable";
         if (up) s.lastOk[d.id] = iso(ms);
-        const e = up ? null : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
+        const e = up ? null : cfg.type === "opcua" ? uaAccess(cfg).error : cfg.type === "mqtt" ? {code: "CONN_REFUSED", message: `cannot connect to ${cfg.connection.broker_url} (in this demo the broker is ${BROKER})`}
           : cfg.type === "snmp" ? snmpAccess(cfg, d).error : cfg.type === "udp"
           ? {code: "CONN_TIMEOUT", message: `no datagram from sender ${d.id} for ${cfg.connection.silence_timeout_s ?? 60} s`}
           : {code: "CONN_TIMEOUT", message: `No response from unit ${d.unit_id} within ${cfg.acquisition?.request_timeout_ms ?? 1000} ms`};
@@ -588,15 +646,17 @@
   ];
   function catalog() {
     const types = (window.__DEMO_CATALOG__ || []).map((t) => {
-      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
+      const protocols = t.protocols.map((p) => ({...p, status: ["modbus", "udp", "snmp", "mqtt", "opcua"].includes(p.connector) ? "available" : SPECIFIED.has(p.connector) ? "specified" : "planned"}));
       return {...t, protocols, available: protocols.filter((p) => p.status === "available").length};
     });
-    return {types, available: ["modbus", "mqtt", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
+    return {types, available: ["modbus", "mqtt", "opcua", "snmp", "udp"], templates: window.__DEMO_TEMPLATES__ || {}, secrets: true, demo: {site: "ps-west", devices: [
       {name: "Pump Station West", device_id: "pump-plc", ...PUMP, unit_id: PUMP.unit, tags: PUMP_TAGS},
       {type: "snmp", name: "Server room switch and UPS", community: "public", v3: SNMP_V3, trap_port: TRAP_PORT,
         devices: [{id: "server-room-sw", host: "127.0.0.1", port: 161, name: "Server room switch"}, {id: "ups-1", host: "127.0.0.1", port: 1161, name: "UPS 10 kVA"}]},
       {type: "mqtt", name: "Water meters and solar plant (MQTT broker)", broker_url: BROKER,
         subscriptions: [{topic_filter: "meters/+/telemetry", qos: 1}, {topic_filter: "spBv1.0/solar/#", qos: 0}]},
+      {type: "opcua", name: "Bottling line 1 PLC", endpoint_url: UA.url, security_policy: "Basic256Sha256", security_mode: "SignAndEncrypt",
+        thumbprint: UA.thumb, username: UA.user, password: UA.password},
       {type: "udp", name: "GNSS and weather station", bind_port: STATION.port, senders: [{id: "station", host: "127.0.0.1", name: "GNSS + weather station"}]}]}};
   }
 
@@ -611,7 +671,7 @@
     if (!create && !existing) return [null, err(404, "NOT_FOUND", `source ${id} not found`)];
     const doc = {spec: "1.0", revision: existing ? existing.config.revision + 1 : 1, enabled: true, ...JSON.parse(JSON.stringify(body)), source_id: id};
     doc.spec = "1.0"; doc.revision = existing ? existing.config.revision + 1 : 1;
-    if (!["modbus", "udp", "snmp", "mqtt"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['modbus', 'mqtt', 'snmp', 'udp']`)];
+    if (!["modbus", "udp", "snmp", "mqtt", "opcua"].includes(doc.type)) return [null, err(422, "CONNECTOR_UNAVAILABLE", `no ${doc.type} connector is installed yet; available: ['modbus', 'mqtt', 'opcua', 'snmp', 'udp']`)];
     const errors = doc.type === "modbus" ? validate(doc) : validateOther(doc);
     if (errors.length) return [null, err(422, "CFG_INVALID", "configuration is not valid", errors)];
     const taken = doc.points.map((p) => p.tag_id).filter((t) => tagOwner.has(t) && tagOwner.get(t) !== id);
@@ -629,11 +689,20 @@
     event(doc.source_id, "config.applied", "info", `Configuration revision ${doc.revision} applied`, {attrs: {revision: doc.revision}});
   }
   function readAddress(cfg, address, data_type) {
-    const dev = devicesOf(cfg).find((d) => d.id === address.device);
+    const dev = devicesOf(cfg).find((d) => d.id === devOfPoint(cfg, {address}));
     if (!dev || !deviceReachable(cfg, dev, now())) return {v: null, q: 24};
     return pointValue(cfg, {tag_id: "adhoc", address: {...address, transform: "none"}, data_type}, now()) || {v: null, q: 4};
   }
   async function testConnection(cfg) {
+    if (cfg.type === "opcua") {
+      await sleep(rnd(300, 600));
+      const a = uaAccess(cfg), c = cfg.connection;
+      if (a.error) return {devices: [{id: "server", ok: false, latency_ms: r(rnd(20, 60), 1), error: a.error,
+        ...(a.endpoints ? {info: {endpoints: UA.offered.map((x) => x.replace("|", "/")), ...(a.cert ? {server_thumbprint: UA.thumb, server_certificate: UA.cert} : {})}} : {})}]};
+      return {devices: [{id: "server", ok: true, latency_ms: r(rnd(40, 70), 1), info: {endpoint: c.endpoint_url,
+        security: c.security_policy === "None" ? "None/None" : `${c.security_policy}/${c.security_mode}`, server: "Opcare demo · Bottling line 1 PLC",
+        server_thumbprint: UA.thumb, server_state: "Running", product: "Opcare demo · Bottling line 1 PLC", namespaces: [UA.ns]}}]};
+    }
     if (cfg.type === "mqtt") {
       await sleep(rnd(200, 450));
       const c = cfg.connection, ok = brokerOk(cfg);
@@ -693,6 +762,7 @@
     engineer: "Operator + adds and changes data sources", admin: "Engineer + deletes sources and manages users"};
   const DEMO_LOGIN = {username: "admin", password: "Opcare@2026"};
   const users = new Map();
+  const certThumbs = new Map();       // OPC UA client certificate name -> thumbprint
   const sessions = new Map();         // token -> username
   function addUser(username, name, role, password, mustChange, email = null) {
     users.set(username, {username, name, email, role, password, active: true, must_change_password: mustChange,
@@ -718,7 +788,7 @@
   }
   function needs(path, method) {
     if (path.startsWith("/api/users") || (path.startsWith("/api/sources/") && method === "DELETE")) return "admin";
-    if (path.startsWith("/api/secrets") || path === "/api/sources-check" || path === "/api/sources-test" || path === "/api/sources-browse" ||
+    if (path.startsWith("/api/secrets") || path === "/api/opcua-certificate" || path === "/api/sources-check" || path === "/api/sources-test" || path === "/api/sources-browse" ||
       (path.startsWith("/api/sources") && method !== "GET" && !/\/admin\/(ping|get_diagnostics)$/.test(path))) return "engineer";
     if (path === "/api/audit") return "admin";
     return "viewer";
@@ -813,6 +883,22 @@
       const create = url.searchParams.get("mode") !== "update";
       const [doc, e] = prepare(body, create, url.searchParams.get("source_id")); return e || json({ok: true, config: doc});
     }
+    if (p === "/api/opcua-certificate") {
+      const name = body?.name || url.searchParams.get("name") || "opcua-client", cert_ref = `${name}.cert.pem`, key_ref = `${name}.key.pem`;
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) return err(400, "BAD_REQUEST", "certificate name: 1-64 letters, digits, dash or underscore");
+      const exists = secrets.has(cert_ref) && secrets.has(key_ref);
+      if (method === "GET" && !exists) return json({cert_ref, key_ref, exists: false});
+      let created = false;
+      if (method === "POST" && (!exists || body?.regenerate)) {
+        const tp = Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+        const pem = "-----BEGIN CERTIFICATE-----\n" + btoa(`Opcare DAQ demo certificate ${tp} (the hosted demo makes no real key)`) + "\n-----END CERTIFICATE-----\n";
+        secrets.set(cert_ref, pem); secrets.set(key_ref, "(private key kept on the edge node)"); certThumbs.set(name, tp);
+        audit.unshift({ts: iso(now()), user: who.username, action: "create_opcua_certificate", target: name, detail: tp});
+        created = true;
+      }
+      return json({cert_ref, key_ref, exists: true, created, thumbprint: certThumbs.get(name), application_uri: `urn:opcare:daq:${name}`,
+        subject: "O=Opcare Smart Services,CN=Opcare DAQ " + name, not_after: "2036-11-27", certificate_pem: secrets.get(cert_ref)});
+    }
     if (p === "/api/secrets" && method === "GET") return json({names: [...secrets.keys()].sort(), managed_here: true});
     if ((m = p.match(/^\/api\/secrets\/([^/]+)$/)) && method === "PUT") {
       const name = decodeURIComponent(m[1]);
@@ -880,6 +966,11 @@
       await sleep(Math.min(8, args.listen_s || 10) * 250);
       if (!brokerOk(doc)) return json({...res, ok: false, error: {code: "CONN_REFUSED", message: `cannot connect to ${doc.connection.broker_url}`}}, 502);
       return json({...res, ok: true, result: mqttListen(doc)});
+    }
+    if (doc.type === "opcua") {
+      await sleep(rnd(200, 450));
+      const a = uaAccess(doc);
+      return a.error ? json({...res, ok: false, error: a.error}, 502) : json({...res, ok: true, result: uaBrowse(args.path)});
     }
     if (doc.type === "snmp") {
       await sleep(rnd(200, 500));

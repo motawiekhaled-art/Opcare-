@@ -227,7 +227,7 @@ input.invalid { border-color: var(--bad); background: var(--bad-bg); }
 .demo-dev { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
 .test-panel { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .test-results { list-style: none; padding: 0; margin: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; }
-.test-results li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line-2); padding: 6px 0; }
+.test-results li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line-2); padding: 6px 0; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .paste { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .paste textarea { padding: 8px; font-family: var(--mono); font-size: 12px; min-height: 120px; }
@@ -246,6 +246,17 @@ label.check.small { font-size: 12px; white-space: nowrap; }
 .browse .row b { margin-right: auto; }
 .browse .table-wrap.browse-list { max-height: 360px; overflow-y: auto; }
 .browse tr.group td { background: var(--blue-soft); }
+.trust { flex-basis: 100%; border: 1px solid var(--line); border-left: 3px solid var(--amber, #c98a00); border-radius: 8px; padding: 10px 12px; background: var(--card); }
+.trust dl.summary { margin: 8px 0; }
+.trust dd.mono { word-break: break-all; }
+.cert-box { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--blue-soft); }
+.cert-box p { margin: 0 0 6px; }
+.trust-add { display: flex; gap: 8px; align-items: flex-end; max-width: 560px; }
+.trust-add .field { flex: 1; }
+.trust-add .btn { margin-bottom: 2px; }
+fieldset h4 { margin: 12px 0 6px; font-size: 13px; }
+.browse .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 8px; }
+.browse .crumbs #add-all { margin-left: auto; }
 .browse .sample { color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 3.2em; overflow: hidden; }
 
 .errors { border: 1px solid var(--bad); background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }

@@ -240,6 +240,27 @@ class Platform:
             f.write(value)
         os.replace(tmp, self.secrets_dir / name)
 
+    def opcua_certificate(self, name: str, regenerate: bool = False, create: bool = True) -> dict:
+        """Client application certificate for OPC UA sources: '<name>.cert.pem' and '<name>.key.pem' secrets.
+        Returns the public part only (the key stays in the secrets folder)."""
+        if self.secrets_dir is None:
+            raise ApiError(501, "NOT_SUPPORTED", "secrets are managed on the edge nodes of this installation")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name or ""):
+            raise ApiError(400, "BAD_REQUEST", "certificate name: 1-64 letters, digits, dash or underscore")
+        from .certs import make_opcua_certificate, summary
+        cert_ref, key_ref = f"{name}.cert.pem", f"{name}.key.pem"
+        cert_file = self.secrets_dir / cert_ref
+        created = False
+        exists = cert_file.is_file() and (self.secrets_dir / key_ref).is_file()
+        if not create and not exists:
+            return {"cert_ref": cert_ref, "key_ref": key_ref, "exists": False}
+        if regenerate or not (cert_file.is_file() and (self.secrets_dir / key_ref).is_file()):
+            cert_pem, key_pem, _ = make_opcua_certificate(name)
+            self.store_secret(key_ref, key_pem)
+            self.store_secret(cert_ref, cert_pem)
+            created = True
+        return {"cert_ref": cert_ref, "key_ref": key_ref, "exists": True, "created": created, **summary(cert_file.read_text())}
+
     def secret_names(self) -> list[str]:
         if self.secrets_dir is None or not self.secrets_dir.is_dir():
             return []
